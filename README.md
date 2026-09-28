@@ -63,6 +63,28 @@ export ROBOMETER_PROCESSED_DATASETS_PATH=/path/to/save/processed_datasets
 ./scripts/untar_processed_datasets.sh
 ```
 
+Extraction uses up to **95 concurrent native `tar` processes** by default. Set
+`--jobs` to change the limit. Split `.tar.partaa` / `.tar.part-aa` files are grouped
+and streamed in order as one archive, without writing an intermediate combined tar.
+
+```bash
+# Preview the archive groups and worker count without changing files.
+./scripts/untar_processed_datasets.sh --jobs 95 --dry-run
+
+# Extract while retaining the downloaded archives.
+./scripts/untar_processed_datasets.sh --jobs 95 --keep-archives
+```
+
+Concurrency is capped by the number of independent archives: the downloaded
+snapshot has 93 archive groups, so it uses at most 93 jobs. Individual tar archives
+are read sequentially, and storage throughput may limit CPU utilization.
+Per-archive errors are saved in `.untar-logs/` under the dataset directory.
+Failures return a nonzero exit code and retain all input archives. By default,
+inputs are removed only after every extraction and the final directory moves
+succeed; use `--keep-archives` to preserve them. Interrupted extractions can be
+rerun from the retained archives; extraction restarts rather than resuming at a
+byte offset.
+
 For raw download and preprocessing, see [📥 Download raw datasets](#-download-raw-datasets-optional) below.
 
 ---

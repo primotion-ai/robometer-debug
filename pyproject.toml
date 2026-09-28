@@ -134,6 +134,8 @@ allow-direct-references = true
 
 # Configuration for the 'uv' package manager
 [tool.uv]
+# Match torchao native extensions to the pinned PyTorch 2.8 runtime.
+constraint-dependencies = ["torchao==0.13.0"]
 # Declare that robometer and vlac optional dependencies are incompatible
 # They have conflicting trl and transformers version requirements
 conflicts = [
