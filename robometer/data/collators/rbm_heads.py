@@ -182,16 +182,12 @@ class RBMBatchCollator(BaseCollator):
                 - content_extras: Dictionary with resized_height/width or empty dict
         """
         if self.use_multi_image:
-            # # Use images directly - return list of PIL Images
-            # if self.resized_height is not None and self.resized_width is not None:
-            #     content_extras = {
-            #         "resized_height": self.resized_height,
-            #         "resized_width": self.resized_width,
-            #     }
-            # else:
-            #     frames = [_resize_pil(frame) for frame in frames]
-            #     content_extras = {}
             content_extras = {}
+            if self.resized_height is not None and self.resized_width is not None:
+                content_extras = {
+                    "resized_height": self.resized_height,
+                    "resized_width": self.resized_width,
+                }
             return frames, content_extras
         elif "Qwen" in self.base_model_id or "Molmo" in self.base_model_id:
             # Qwen and Molmo accept list of PIL Images directly

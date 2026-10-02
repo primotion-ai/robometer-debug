@@ -130,6 +130,26 @@ def compute_success_labels(
     return success_labels
 
 
+def resolve_processed_path(filepath: str, processed_root: str | None = None) -> str:
+    """Resolve archive paths relative to the configured, possibly relocated cache."""
+    from pathlib import Path
+
+    path = Path(filepath)
+    if path.is_absolute():
+        return str(path)
+    root = processed_root if processed_root is not None else os.environ.get("ROBOMETER_PROCESSED_DATASETS_PATH", "")
+    if not root:
+        return str(path)
+    candidate = Path(root) / path
+    if candidate.exists():
+        return str(candidate)
+    # Published caches contain ./processed_datasets/<subset>/frames/...;
+    # the configured root already contains the subset directories directly.
+    if path.parts and path.parts[0] == "processed_datasets":
+        return str(Path(root).joinpath(*path.parts[1:]))
+    return str(candidate)
+
+
 def load_frames_from_npz(npz_filepath: str) -> np.ndarray:
     """Load frames on-demand from npz file.
 
@@ -142,13 +162,7 @@ def load_frames_from_npz(npz_filepath: str) -> np.ndarray:
     if not npz_filepath:
         raise ValueError("npz_filepath is None or empty")
 
-    # If path is relative, prepend ROBOMETER_PROCESSED_DATASETS_PATH
-    if not os.path.isabs(npz_filepath):
-        processed_root = os.environ.get("ROBOMETER_PROCESSED_DATASETS_PATH", "")
-        # Normalize: strip processed_datasets when env points to repo root
-        processed_root = processed_root.replace("processed_datasets", "")
-        if processed_root:
-            npz_filepath = os.path.join(processed_root, npz_filepath)
+    npz_filepath = resolve_processed_path(npz_filepath)
 
     if not os.path.exists(npz_filepath):
         raise ValueError(f"NPZ file not found: {npz_filepath}")
@@ -177,14 +191,7 @@ def load_embeddings_from_path(embeddings_path: str) -> torch.Tensor:
         ipdb.set_trace()
         raise ValueError(f"embeddings_path: {embeddings_path} is None or empty")
 
-    # If path is relative, prepend ROBOMETER_PROCESSED_DATASETS_PATH
-    if not os.path.isabs(embeddings_path):
-        processed_root = os.environ.get("ROBOMETER_PROCESSED_DATASETS_PATH", "")
-        # Normalize: strip processed_datasets when env points to repo root
-        processed_root = processed_root.replace("processed_datasets/", "")
-        processed_root = processed_root.replace("processed_datasets", "")
-        if processed_root:
-            embeddings_path = os.path.join(processed_root, embeddings_path)
+    embeddings_path = resolve_processed_path(embeddings_path)
 
     with open(embeddings_path, "rb") as f:
         embeddings_data = torch.load(f, map_location="cpu")

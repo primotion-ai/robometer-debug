@@ -414,8 +414,11 @@ class SaveBestCallback(TrainerCallback):
         base_model: str = "Qwen/Qwen2.5-VL-3B-Instruct",
     ):
         super().__init__()
-        self.metric_names = metric_names or ["custom_eval/p_rank_spearman_mw"]
-        self.greater_is_better = greater_is_better or [True]
+        # None preserves the default monitor; an empty list disables best saves.
+        self.metric_names = ["custom_eval/p_rank_spearman_mw"] if metric_names is None else metric_names
+        self.greater_is_better = (
+            ([True] if self.metric_names else []) if greater_is_better is None else greater_is_better
+        )
 
         # Validate inputs
         if len(self.metric_names) != len(self.greater_is_better):
@@ -558,6 +561,9 @@ class SaveBestCallback(TrainerCallback):
         Callback triggered after evaluation.
         Metrics are already gathered across all processes by the trainer before being passed here.
         """
+        if not self.metric_names and self.save_every is None:
+            return control
+
         step = state.global_step
 
         # Only rank 0 needs to process metrics and save checkpoints
@@ -566,6 +572,15 @@ class SaveBestCallback(TrainerCallback):
             return control
 
         logger.info(f"SaveBestCallback.on_evaluate called at step {step} with {len(metrics)} metrics")
+
+        if not self.metric_names:
+            if (
+                self.save_every is not None and step > 0 and step % self.save_every == 0
+                and step != self._last_save_step
+            ):
+                self._save_latest_checkpoint(args, state, metrics)
+                self._last_save_step = step
+            return control
 
         score, missing_metrics = self._compute_averaged_score(metrics)
 
@@ -729,7 +744,9 @@ class SaveBestCallback(TrainerCallback):
         metric_short = self._build_metric_short_name()
 
         # Build tag with metrics and step
-        tag = f"latest-{metric_short}={score:.4f}_step={step}"
+        tag = (
+            f"latest-{metric_short}={score:.4f}_step={step}" if self.metric_names else f"latest-step={step}"
+        )
         ckpt_dir = os.path.join(args.output_dir, f"ckpt-{tag}")
 
         metrics_str = self._build_metrics_detail_string(metrics)
@@ -761,9 +778,14 @@ class SaveBestCallback(TrainerCallback):
 
         if should_upload_latest_to_hub:
             hub_model_id = self._get_hub_model_id(args)
-            tag_name = self._clean_tag_name(f"latest-{metric_short}-{score:.4f}-step-{step}")
+            tag_name = self._clean_tag_name(
+                f"latest-{metric_short}-{score:.4f}-step-{step}" if self.metric_names else f"latest-step-{step}"
+            )
             individual_scores_str = self._build_individual_scores_string(metrics)
-            commit_message = f"Latest checkpoint: avg_score={score:.4f} at step {step} | {individual_scores_str}"
+            commit_message = (
+                f"Latest checkpoint: avg_score={score:.4f} at step {step} | {individual_scores_str}"
+                if self.metric_names else f"Latest checkpoint at step {step}"
+            )
 
             # Delete previous 'latest' Hub tag if it exists
             api = HfApi(token=self.hub_token)

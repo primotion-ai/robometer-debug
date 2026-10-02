@@ -49,8 +49,18 @@ class RBM(PredictionHeadsMixin, PreTrainedModel):
     _supports_sdpa = True
     _supports_flash_attn_2 = True
 
+    @classmethod
+    def _can_set_experts_implementation(cls):
+        # Expert dispatch belongs to the wrapped Qwen3.5 MoE model.
+        return True
+
     def __init__(self, config, processor, tokenizer, base_model=None, base_model_id=None, model_config=None):
-        if "SmolVLM" in base_model_id:
+        if config.model_type in {"qwen3_5", "qwen3_5_moe"}:
+            from transformers import Qwen3_5Model, Qwen3_5MoeModel
+
+            hidden_size = config.text_config.hidden_size
+            self.model_cls = Qwen3_5MoeModel if config.model_type == "qwen3_5_moe" else Qwen3_5Model
+        elif "SmolVLM" in base_model_id:
             hidden_size = config.text_config.hidden_size
             self.model_cls = SmolVLMModel
         elif "Qwen2.5" in base_model_id:
@@ -531,7 +541,19 @@ class RBM(PredictionHeadsMixin, PreTrainedModel):
             is_qwen3 = "Qwen3" in self.base_model_id or (
                 hasattr(self.model, "config") and "Qwen3" in str(type(self.model))
             )
-            if is_qwen3:
+            if self.config.model_type in {"qwen3_vl", "qwen3_5", "qwen3_5_moe"}:
+                model_kwargs.pop("second_per_grid_ts", None)
+                if model_kwargs.get("mm_token_type_ids") is None:
+                    # Older processors/collators may omit the modality metadata
+                    # required by current Qwen3-VL and Qwen3.5 M-RoPE.
+                    token_types = torch.zeros_like(input_ids)
+                    token_types[input_ids == self.config.image_token_id] = 1
+                    token_types[input_ids == self.config.video_token_id] = 2
+                    model_kwargs["mm_token_type_ids"] = token_types
+            if self.config.model_type in {"qwen3_5", "qwen3_5_moe"}:
+                outputs = self.model(**model_kwargs, use_cache=False, return_dict=True)
+                hidden_state = outputs.last_hidden_state
+            elif is_qwen3:
                 outputs = self.model(**model_kwargs, output_hidden_states=True, return_dict=True)
                 # Qwen3 uses hidden_states tuple, take the last layer
                 hidden_state = (

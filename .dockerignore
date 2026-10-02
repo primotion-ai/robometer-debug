@@ -1,0 +1,8 @@
+.git
+.venv
+.secrets
+logs
+outputs
+wandb
+**/__pycache__
+memory_log_rank*.txt

@@ -46,10 +46,10 @@ from robometer.utils.setup_utils import (
     setup_peft_model,
 )
 from robometer.utils.timer import _timer
+from robometer.utils.training_profile import diagnose_rank_wait, profile_python_gc
 
 datasets.logging.set_verbosity_error()
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-torch.autograd.set_detect_anomaly(True)
 
 # Register structured configs with Hydra
 cs = ConfigStore.instance()
@@ -64,12 +64,26 @@ cs.store(group="logging/save_best", name="save_best_config", node=SaveBestConfig
 cs.store(group="custom_eval", name="custom_eval_config", node=CustomEvaluationConfig)
 
 
-torch.set_num_threads(64)
-torch.set_num_interop_threads(8)
+torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "8")))
+torch.set_num_interop_threads(2)
 
 
 def train(cfg: ExperimentConfig):
+    if cfg.training.pure_fp16:
+        from robometer.utils.pure_fp16 import validate_pure_fp16_config
+
+        validate_pure_fp16_config(cfg)
+        if os.environ.get("ACCELERATE_MIXED_PRECISION", "no") != "no":
+            raise ValueError("397B pure FP16 requires the dedicated launcher with mixed_precision=no")
+        if os.environ.get("FSDP_ACTIVATION_CHECKPOINTING", "").lower() != "true":
+            raise ValueError("397B pure FP16 requires FSDP_ACTIVATION_CHECKPOINTING=true; use the B200 launcher")
     timing_raw = {}
+    torch.autograd.set_detect_anomaly(cfg.training.detect_anomaly)
+    # Establish ranks before from_pretrained, so FSDP's RAM-efficient loading works.
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        from accelerate import PartialState
+
+        PartialState()
 
     run_name = cfg.training.exp_name
     if cfg.debug:
@@ -99,7 +113,8 @@ def train(cfg: ExperimentConfig):
     with _timer("time/setup_model_and_processor", timing_raw=timing_raw):
         tokenizer, processor, rbm_model = setup_model_and_processor(
             cfg.model,
-            hf_model_id=checkpoint_to_load or "",
+            # Full resume is loaded by Trainer after FSDP wrapping, including shards.
+            hf_model_id=cfg.training.load_from_checkpoint or "",
             peft_config=cfg.peft,
         )
 
@@ -130,7 +145,9 @@ def train(cfg: ExperimentConfig):
 
     # Check if output directory exists (only on rank 0 to avoid race conditions)
     if is_rank_0() and os.path.exists(output_dir):
-        if overwrite_output_dir:
+        if cfg.training.resume_from_checkpoint:
+            rank_0_info(f"Resuming into existing output directory: {output_dir}")
+        elif overwrite_output_dir:
             rank_0_info(f"Output directory {output_dir} already exists. Overwriting (overwrite_output_dir=True)...")
             shutil.rmtree(output_dir)
         else:
@@ -159,8 +176,9 @@ def train(cfg: ExperimentConfig):
     logger = Logger(log_to=log_to, output_dir=output_dir, is_main_process=is_rank_0(), log_level=log_level)
     config_save_path = os.path.join(output_dir, "config.yaml")
     config_dict = asdict(cfg)
-    with open(config_save_path, "w") as f:
-        yaml.dump(config_dict, f, default_flow_style=False, indent=2)
+    if is_rank_0():
+        with open(config_save_path, "w") as f:
+            yaml.dump(config_dict, f, default_flow_style=False, indent=2)
     rank_0_info(f"Saved training config to: {config_save_path}")
 
     # Try to load existing wandb info if resuming training
@@ -337,10 +355,35 @@ def train(cfg: ExperimentConfig):
     if cfg.debug:
         rank_0_info("🐛 DEBUG MODE: eval_steps=2, custom_eval_steps=2, eval_subset_size=10")
 
-    trainer.train(resume_from_checkpoint=resume_path)
-    save_final_checkpoint(trainer, cfg.training.output_dir, step=trainer.state.global_step)
-    shutil.copy(os.path.join(output_dir, "config.yaml"), os.path.join(cfg.training.output_dir, "config.yaml"))
-    rank_0_info(f"Training complete! Check {cfg.training.output_dir} for checkpoints and final model.")
+    with profile_python_gc(output_dir), diagnose_rank_wait(trainer):
+        trainer.train(resume_from_checkpoint=resume_path)
+    if torch.cuda.is_available():
+        memory = {
+            "rank": int(os.environ.get("RANK", "0")),
+            "peak_allocated_gib": torch.cuda.max_memory_allocated() / 2**30,
+            "peak_reserved_gib": torch.cuda.max_memory_reserved() / 2**30,
+        }
+        with open(os.path.join(output_dir, f"memory_rank_{memory['rank']}.json"), "w") as f:
+            json.dump(memory, f, indent=2)
+        print(f"GPU memory: {memory}", flush=True)
+    if cfg.logging.save_model:
+        plugin = getattr(trainer.accelerator.state, "fsdp_plugin", None)
+        if plugin and "SHARDED_STATE_DICT" in str(plugin.state_dict_type):
+            # Trainer.save_model() is a no-op for SHARDED_STATE_DICT. Save a
+            # resumable checkpoint collectively instead of gathering 397B weights.
+            trainer._save_checkpoint(trainer.model, trial=None)
+            final_dir = os.path.join(output_dir, f"checkpoint-{trainer.state.global_step}")
+        else:
+            final_dir = os.path.join(output_dir, "final")
+            save_final_checkpoint(trainer, final_dir, step=trainer.state.global_step)
+        if is_rank_0():
+            shutil.copy(config_save_path, os.path.join(final_dir, "config.yaml"))
+            if cfg.logging.save_processor:
+                processor.save_pretrained(final_dir)
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
+    rank_0_info(f"Training complete! Check {output_dir} for logs and checkpoints.")
 
 
 @hydra_main(version_base=None, config_path="robometer/configs", config_name="config")

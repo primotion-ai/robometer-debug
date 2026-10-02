@@ -7,17 +7,22 @@ across different training scripts.
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
-from transformers import PretrainedConfig
 
 
 @dataclass
-class ModelConfig(PretrainedConfig):
+class ModelConfig:
     """Config for model settings"""
 
     base_model_id: str = field(default="Qwen/Qwen2.5-VL-3B-Instruct")
     model_type: str = field(default="default")
     torch_dtype: str = field(default="bfloat16")
     trust_remote_code: bool = field(default=True)
+    attn_implementation: Optional[str] = field(default=None)
+    experts_implementation: Optional[str] = field(default=None)
+    linear_attention_backend: str = field(
+        default="auto",
+        metadata={"help": "Qwen3.5 linear attention: auto, torch, or fla (required fused kernels)."},
+    )
     train_vision_encoder: bool = field(default=False, metadata={"help": "Whether to train the vision encoder"})
     train_language_model: bool = field(default=True, metadata={"help": "Whether to train the language model"})
 
@@ -131,6 +136,10 @@ class DataConfig:
     dataset_type: str = field(
         default="default",
         metadata={"help": "Dataset type: 'default', 'rewound', 'success_failure'"},
+    )
+    dataset_num_repeats: int = field(
+        default=1000,
+        metadata={"help": "Virtual dataset repetitions; use 1 for large max_steps training to bound sampler memory"},
     )
 
     max_frames_after_preprocessing: int = field(
@@ -370,12 +379,19 @@ class TrainingConfig:
     logging_steps: int = field(default=10)
     bf16: bool = field(default=False)
     fp16: bool = field(default=True)
+    # Opt-in pure storage precision; distinct from Trainer's AMP fp16 flag.
+    pure_fp16: bool = field(default=False)
+    gradient_checkpointing_backend: str = field(default="transformers")
     remove_unused_columns: bool = field(default=False)
     gradient_checkpointing: bool = field(default=True)
+    detect_anomaly: bool = field(default=False)
     ddp_find_unused_parameters: bool = field(default=False)
     ddp_bucket_cap_mb: int = field(default=25)
     max_steps: Optional[int] = field(default=-1)  # -1 means no limit, use num_train_epochs instead
     save_steps: int = field(default=100)
+    save_total_limit: Optional[int] = field(
+        default=2, metadata={"help": "Maximum Trainer checkpoints to retain; None keeps all checkpoints"}
+    )
     dataloader_pin_memory: bool = field(default=True)
     dataloader_num_workers: int = field(default=0)
     dataloader_persistent_workers: bool = field(default=False)

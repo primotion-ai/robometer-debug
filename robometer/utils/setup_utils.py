@@ -4,8 +4,6 @@ Shared setup utilities for RBM training.
 This file contains setup functions that can be reused across different training scripts.
 """
 
-from unsloth import FastVisionModel
-
 import json
 import os
 from pathlib import Path
@@ -15,6 +13,7 @@ from safetensors import safe_open
 from safetensors.torch import load_file
 from peft import LoraConfig, get_peft_model, PeftModel
 from transformers import (
+    AutoConfig,
     AutoImageProcessor,
     AutoModel,
     AutoModelForImageTextToText,
@@ -498,6 +497,9 @@ def _load_base_model_with_unsloth(
     """
     logger.info("Using Unsloth for faster training with Qwen model")
 
+    # Keep Unsloth's global patches out of standard Transformers/FSDP runs.
+    from unsloth import FastVisionModel
+
     # Load model with unsloth
     base_model, tokenizer = FastVisionModel.from_pretrained(
         cfg.base_model_id,
@@ -566,6 +568,48 @@ def _load_base_model_standard(
     Returns:
         Base model
     """
+    # The local directory name need not match the architecture (e.g. Qwen3.8-27B).
+    model_config = AutoConfig.from_pretrained(cfg.base_model_id, trust_remote_code=cfg.trust_remote_code)
+    if model_config.model_type in {"qwen3_5", "qwen3_5_moe"}:
+        from transformers import Qwen3_5Model, Qwen3_5MoeModel
+        from robometer.utils.qwen_kernels import configure_qwen_linear_attention
+
+        model_cls = Qwen3_5MoeModel if model_config.model_type == "qwen3_5_moe" else Qwen3_5Model
+        if cfg.experts_implementation is not None:
+            model_config._experts_implementation = cfg.experts_implementation
+        model_config.text_config.use_cache = False
+        # Materialize pretrained weights only on rank 0. In particular, avoid
+        # Transformers allocating a full CPU copy on every rank for the 397B model.
+        if (
+            os.environ.get("ACCELERATE_USE_FSDP", "").lower() == "true"
+            and os.environ.get("FSDP_CPU_RAM_EFFICIENT_LOADING", "").lower() == "true"
+            and torch.distributed.is_initialized()
+            and torch.distributed.get_rank() != 0
+        ):
+            from accelerate import init_empty_weights
+
+            model_config._attn_implementation = extra_kwargs.get("attn_implementation", "sdpa")
+            with init_empty_weights():
+                base_model = model_cls(model_config)
+            return configure_qwen_linear_attention(base_model, cfg.linear_attention_backend).to(dtype=torch_dtype)
+        base_model, loading_info = model_cls.from_pretrained(
+            cfg.base_model_id,
+            config=model_config,
+            dtype=torch_dtype,
+            # Strip the conditional-generation wrapper before the nested text
+            # conversion runs; otherwise Transformers 5.5 drops language_model.
+            key_mapping={
+                r"^model\.language_model\.": "language_model.",
+                r"^model\.visual\.": "visual.",
+            },
+            output_loading_info=True,
+            **extra_kwargs,
+            quantization_config=bnb,
+        )
+        if loading_info.get("missing_keys") or loading_info.get("mismatched_keys"):
+            raise ValueError(f"Incomplete Qwen backbone loading: {loading_info}")
+        return configure_qwen_linear_attention(base_model, cfg.linear_attention_backend).to(dtype=torch_dtype)
+
     # Check if it's Molmo, Qwen3 or Qwen2/2.5
     is_molmo = "Molmo" in cfg.base_model_id
     is_qwen3 = ("Qwen3" in cfg.base_model_id or "qwen3" in cfg.base_model_id.lower()) and HAS_QWEN3
@@ -669,7 +713,9 @@ def _add_special_tokens_and_resize(cfg: ModelConfig, processor: AutoProcessor, b
 
     logger.info(f"Added {num_added} special tokens")
 
-    base_model.resize_token_embeddings(len(processor.tokenizer))
+    # Avoid covariance initialization of huge embeddings; preserve padded vocabulary rows.
+    vocab_size = max(len(processor.tokenizer), base_model.get_input_embeddings().num_embeddings)
+    base_model.resize_token_embeddings(vocab_size, mean_resizing=False)
     logger.info(f"Resized token embeddings to {len(processor.tokenizer)}")
 
     # import ipdb; ipdb.set_trace()
@@ -860,7 +906,9 @@ def setup_model_and_processor(
         logger.info("Flash Attention 2 CUDA is not available")
         has_flash_attn = False
 
-    if has_flash_attn:
+    if cfg.attn_implementation:
+        extra_kwargs = {"attn_implementation": cfg.attn_implementation}
+    elif has_flash_attn:
         extra_kwargs = {"attn_implementation": "flash_attention_2"}
     else:
         extra_kwargs = {"attn_implementation": "sdpa"}
@@ -1151,7 +1199,7 @@ def setup_model_and_processor(
     # Configure which parts of the model to train based on config
     # IMPORTANT: When using PEFT (via Unsloth or standard), PEFT already handles freezing
     # base model parameters. We should NOT override requires_grad on base model params.
-    peft_applied = cfg.use_peft and (cfg.use_unsloth or cfg.peft_vision_encoder)
+    peft_applied = cfg.use_peft and model_has_peft(model)
 
     # Helper function to check if a parameter is part of the base model (vision/language)
     def is_base_model_param(name: str) -> bool:
@@ -1301,12 +1349,14 @@ def create_training_arguments(cfg: TrainingConfig, output_dir: str, is_eval: boo
         "bf16": cfg.bf16,
         "fp16": cfg.fp16,
         "remove_unused_columns": cfg.remove_unused_columns,
-        "gradient_checkpointing": cfg.gradient_checkpointing,
+        # FSDP checkpoint wrappers are applied by Accelerate after sharding.
+        # Never checkpoint the same blocks again through Transformers.
+        "gradient_checkpointing": cfg.gradient_checkpointing and cfg.gradient_checkpointing_backend == "transformers",
+        "gradient_checkpointing_kwargs": {"use_reentrant": False},
         "dataloader_pin_memory": cfg.dataloader_pin_memory,
         "dataloader_num_workers": cfg.dataloader_num_workers,
         "dataloader_persistent_workers": cfg.dataloader_persistent_workers,
-        "save_safetensors": True,
-        "save_total_limit": 2,
+        "save_total_limit": cfg.save_total_limit,
         # Evaluation settings
         "eval_strategy": cfg.evaluation_strategy,
         "per_device_eval_batch_size": cfg.per_device_eval_batch_size,
@@ -1323,6 +1373,14 @@ def create_training_arguments(cfg: TrainingConfig, output_dir: str, is_eval: boo
         # "torch_compile_mode": "max-autotune",
         # "torch_compile_backend": "inductor",
     }
+
+    if cfg.gradient_checkpointing_backend not in {"transformers", "fsdp"}:
+        raise ValueError(f"Unknown gradient_checkpointing_backend: {cfg.gradient_checkpointing_backend}")
+    if cfg.pure_fp16:
+        if cfg.bf16 or cfg.fp16:
+            raise ValueError("pure_fp16 requires bf16=false and fp16=false (AMP disabled)")
+        # Used by the dedicated optimizer path; 1e-8 rounds to zero in FP16.
+        base_args.update(optim="adamw_torch", adam_epsilon=1e-4)
 
     # Add eval_steps if evaluation_strategy is "steps"
     if cfg.evaluation_strategy == "steps" and cfg.eval_steps is not None:
@@ -1375,7 +1433,7 @@ def setup_dataset(cfg: DataConfig, is_eval: bool = False, sampler_kwargs=None, *
     dataset = dataset_cls[cfg.dataset_type](config=cfg, is_evaluation=is_eval, **kwargs)
 
     if not is_eval:
-        dataset = RepeatedDataset(dataset)
+        dataset = RepeatedDataset(dataset, num_repeats=cfg.dataset_num_repeats)
     return dataset
 
 

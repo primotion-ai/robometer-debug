@@ -4,21 +4,8 @@ from typing import Optional
 
 
 def is_rank_0():
-    """Check if current process is rank 0 (main process)."""
-    # First check environment variables (most reliable for accelerate)
-    if "LOCAL_RANK" in os.environ:
-        return int(os.environ.get("LOCAL_RANK", 0)) == 0
-
-    # Fallback to torch.distributed
-    try:
-        import torch.distributed as dist
-
-        if dist.is_initialized():
-            return dist.get_rank() == 0
-        else:
-            return True  # If not distributed, consider it rank 0
-    except:
-        return True  # If distributed module not available, consider it rank 0
+    """True only for the global main process, not each node's local GPU 0."""
+    return get_rank() == 0
 
 
 def rank_0_print(*args, verbose=True, **kwargs):
@@ -28,30 +15,20 @@ def rank_0_print(*args, verbose=True, **kwargs):
 
 
 def get_rank():
-    """Get the current rank (process index) in distributed training.
+    """Get the global rank, including before process-group initialization.
 
-    Returns:
-        int: Rank number, or 0 if not in distributed training or rank cannot be determined.
+    The initialized default process group is authoritative. Torchrun's RANK
+    covers startup and teardown; a standalone process defaults to zero.
+    LOCAL_RANK identifies a GPU within one node and must not select writers
+    for job-wide artifacts or W&B runs.
     """
-    # First check environment variables (most reliable for accelerate)
-    if "LOCAL_RANK" in os.environ:
-        return int(os.environ.get("LOCAL_RANK", 0))
-
-    # Also check RANK for global rank
-    if "RANK" in os.environ:
-        return int(os.environ.get("RANK", 0))
-
-    # Fallback to torch.distributed
     try:
         import torch.distributed as dist
-
-        if dist.is_initialized():
-            return dist.get_rank()
-    except:
-        pass
-
-    # Default to 0 if not distributed
-    return 0
+    except ImportError:
+        dist = None
+    if dist is not None and dist.is_available() and dist.is_initialized():
+        return dist.get_rank()
+    return int(os.environ.get("RANK", "0"))
 
 
 def banner(*lines, inner_padding=3):

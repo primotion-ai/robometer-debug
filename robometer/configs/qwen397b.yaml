@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - b200_base
+  - _self_
+
+model:
+  base_model_id: /mnt/base_model/Qwen3.5-397B-A17B
+  torch_dtype: float16
+  # Torch 2.8 grouped_mm supports SM90 only; B200 is SM100.
+  experts_implementation: eager
+training:
+  exp_name: robometer_qwen397b
+  learning_rate: 5.0e-6
+  # Pure FP16 parameter/gradient/AdamW storage, not automatic mixed precision.
+  pure_fp16: true
+  bf16: false
+  fp16: false
+  gradient_checkpointing: true
+  gradient_checkpointing_backend: fsdp

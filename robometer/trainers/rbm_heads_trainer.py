@@ -4,6 +4,7 @@ import io
 import json
 import os
 import random
+import time
 from typing import Dict, List, Tuple, Optional, Any, final
 
 import matplotlib.animation as animation
@@ -31,6 +32,7 @@ from robometer.utils.metrics import compute_spearman_correlation
 from robometer.utils.setup_utils import setup_batch_collator, setup_custom_eval_dataset
 from robometer.utils.tensor_utils import t2n
 from robometer.utils.timer import _timer
+from robometer.utils.training_profile import profile_training_step
 from robometer.utils.video_utils import create_policy_ranking_grid
 
 logger = get_logger()
@@ -127,7 +129,17 @@ def reduce_metrics_with_accelerate(metrics: Dict[str, Any], accelerator, aggrega
 class RBMHeadsTrainer(Trainer):
     def __init__(self, config, *args, logger=None, **kwargs):
         super().__init__(*args, **kwargs)
+        # Trainer manages accumulation boundaries and divides the loss itself.
+        # Transformers 5.5 also passes num_steps to Accelerate, whose backward
+        # would otherwise divide a second time. DeepSpeed manages its own scale.
+        if not self.is_deepspeed_enabled:
+            self.accelerator.gradient_accumulation_steps = 1
         self.config = config
+        if config.training.pure_fp16:
+            from robometer.utils.pure_fp16 import PureFP16Audit, validate_pure_fp16_config
+
+            validate_pure_fp16_config(config)
+            self.add_callback(PureFP16Audit(self.accelerator))
         self.log_metadata = collections.defaultdict(float)
         self.global_metadata = collections.defaultdict(float)
         self.timing_raw = collections.defaultdict(float)
@@ -149,22 +161,30 @@ class RBMHeadsTrainer(Trainer):
         loguru_logger = get_logger()
         loguru_logger.info(f"DDP find_unused_parameters: {getattr(self.args, 'ddp_find_unused_parameters', 'N/A')}")
 
-    def create_optimizer(self):
+    def create_optimizer(self, model=None):
         """
         Override to create optimizer with separate parameter groups for vision encoder layers.
         If vision_encoder_lr is set, the last N vision encoder layers will use that LR,
         while all other parameters use the default learning rate.
         """
+        if self.config.training.pure_fp16:
+            if self.optimizer is None:
+                from robometer.utils.pure_fp16 import create_pure_fp16_optimizer
+
+                target = model if model is not None else self.model
+                self.optimizer = create_pure_fp16_optimizer(target, self.args, self.get_decay_parameter_names(target))
+            return self.optimizer
+
         # Check if we need to create parameter groups for vision encoder
         vision_encoder_lr = self.config.training.vision_encoder_lr
         vision_encoder_num_layers = self.config.training.vision_encoder_num_layers
 
         if vision_encoder_lr is None or vision_encoder_lr <= 0:
             # No special vision encoder LR, use default optimizer
-            return super().create_optimizer()
+            return super().create_optimizer(model) if model is not None else super().create_optimizer()
 
         # Get the model
-        model = self.model
+        model = model if model is not None else self.model
         if not hasattr(model, "model") or not hasattr(model.model, "visual"):
             logger.warning(
                 "vision_encoder_lr is set but model doesn't have visual encoder. "
@@ -371,6 +391,14 @@ class RBMHeadsTrainer(Trainer):
 
         return result
 
+    def get_batch_samples(self, *args, **kwargs):
+        # Includes waiting for the prepared iterator (and its device transfer),
+        # not just disk I/O. Keep separate from forward/backward timing.
+        started = time.perf_counter()
+        result = super().get_batch_samples(*args, **kwargs)
+        self._batch_fetch_seconds = time.perf_counter() - started
+        return result
+
     def training_step(self, model, inputs, num_items_in_batch=None):
         """
         Perform a training step and log custom losses.
@@ -386,7 +414,7 @@ class RBMHeadsTrainer(Trainer):
             self._post_checkpoint_load_reset()
             self._just_resumed_from_checkpoint = False
 
-        self.timing_raw = {}
+        self.timing_raw = {"time/get_batch": getattr(self, "_batch_fetch_seconds", 0.0)}
 
         # Initialize log_metadata
         self.log_metadata = {}
@@ -396,12 +424,12 @@ class RBMHeadsTrainer(Trainer):
             logger.warning("Model not in training mode, setting to train mode")
             model.train()
 
-        # Clear any stale gradients before starting
-        if hasattr(self, "optimizer") and self.optimizer is not None:
-            self.optimizer.zero_grad(set_to_none=True)
+        # Trainer clears gradients after optimizer updates. Clearing them here
+        # would discard earlier microbatches during gradient accumulation.
 
-        with _timer("time/training_step", timing_raw=self.timing_raw):
-            loss = super().training_step(model, inputs, num_items_in_batch)
+        with profile_training_step(self.args.output_dir, self.state.global_step + 1, self.accelerator.process_index):
+            with _timer("time/training_step", timing_raw=self.timing_raw):
+                loss = super().training_step(model, inputs, num_items_in_batch)
 
         # Extract the separate batches
         preference_inputs = inputs.get("preference_inputs", {})
@@ -454,6 +482,20 @@ class RBMHeadsTrainer(Trainer):
 
         # Log GPU memory usage at every training step for diagnostics
         log_memory_usage(f"Step {self.state.global_step}")
+
+        if os.environ.get("ROBOMETER_PROFILE_TIMING") == "1":
+            # Local, per-rank diagnostics; no extra CUDA synchronization or upload.
+            input_ids = preference_inputs.get("input_ids")
+            profile = {
+                "step": self.state.global_step + 1,
+                "rank": self.accelerator.process_index,
+                "workers": self.args.dataloader_num_workers,
+                "input_ids_shape": list(input_ids.shape) if torch.is_tensor(input_ids) else None,
+                **self.timing_raw,
+            }
+            path = os.path.join(self.args.output_dir, f"timing_rank_{profile['rank']}.jsonl")
+            with open(path, "a") as stream:
+                stream.write(json.dumps(profile) + "\n")
 
         return loss
 

@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - b200_base
+  - _self_
+
+# The directory is named Qwen3.8-27B, but config.json declares qwen3_5.
+model:
+  base_model_id: /mnt/base_model/Qwen3.8-27B
+training:
+  exp_name: robometer_qwen27b
+  max_steps: 5000
+  save_steps: 1000
+  # Keep every scheduled checkpoint so earlier weights remain available for eval.
+  save_total_limit: 5
+  eval_steps: 500
+  custom_eval_steps: 500

@@ -145,6 +145,8 @@ uv run python scripts/example_inference_local.py \
 
 ## 🏋️ Training
 
+B200 单机/八机的 Qwen3.8-27B 与 Qwen3.5-397B-A17B 实验、容器作业入口及离线调试：见 [B200 训练说明](run_scripts/B200_TRAINING.md)。
+
 ### Training
 
 **Train on RBM-1M in-distribution and evaluate on RBM-1M-OOD**

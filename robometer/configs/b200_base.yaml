@@ -1,0 +1,68 @@
+# @package _global_
+defaults:
+  - config
+  - _self_
+
+model:
+  use_unsloth: false
+  use_peft: false
+  quantization: false
+  torch_dtype: bfloat16
+  attn_implementation: sdpa
+  # Require fused GatedDeltaNet kernels; fail instead of silently falling back.
+  linear_attention_backend: fla
+  train_vision_encoder: false
+  train_language_model: true
+  train_progress_head: true
+  train_preference_head: true
+  train_success_head: true
+
+data:
+  train_datasets: [rbm-1m-id]
+  eval_datasets: [rbm-1m-ood]
+  # Trainer repeats real epochs until max_steps; avoid a billion-entry randperm/list.
+  dataset_num_repeats: 1
+  max_frames: 8
+  # Preserve the original recipe: let the model processor resize cached images.
+  resized_height: null
+  resized_width: null
+  # Per GPU/rank: 8 workers -> 64 workers per 8-GPU node.
+  dataloader_num_workers: 8
+  dataloader_persistent_workers: true
+
+training:
+  output_dir: ./logs
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5
+  max_steps: 15000
+  gradient_checkpointing: true
+  detect_anomaly: false
+  vision_encoder_lr: null
+  bf16: true
+  fp16: false
+  # Periodic Trainer checkpoints include optimizer/step state for full resume.
+  save_strategy: steps
+  save_steps: 7500
+  eval_steps: 500
+  custom_eval_steps: 500
+
+custom_eval:
+  reward_alignment: [rbm-1m-ood]
+  policy_ranking: [rbm-1m-ood]
+  confusion_matrix: [rbm-1m-ood]
+  quality_preference: [rbm-1m-ood]
+
+logging:
+  log_to: [wandb]
+  wandb_entity: null
+  wandb_project: robometer-qwen-b200
+  wandb_mode: online
+  wandb_notes: BF16 language-backbone finetuning on RBM-1M; frozen vision encoder
+  save_best:
+    # Avoid duplicate full-model exports at every evaluation.
+    metric_names: []
+    greater_is_better: []
+    save_every: null
+    upload_to_hub: false

@@ -7,6 +7,8 @@ class RepeatedDataset(Dataset):
     """Wraps a dataset and repeats it for a fixed number of effective steps (or a large default)."""
 
     def __init__(self, dataset: Dataset, num_repeats: int = 1000):
+        if not isinstance(num_repeats, int) or isinstance(num_repeats, bool) or num_repeats < 1:
+            raise ValueError("num_repeats must be a positive integer")
         self.dataset = dataset
         self._len = len(dataset)
         self.num_repeats = num_repeats
