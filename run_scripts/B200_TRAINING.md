@@ -36,9 +36,9 @@ RUN_NAME=rbm_qwen27b_single_001 bash run_scripts/train_single_b200.sh 27b
 RUN_NAME=rbm_qwen397b_single_001 bash run_scripts/train_single_b200.sh 397b
 ```
 
-默认完整语言主干 + 三个奖励头训练，冻结视觉编码器，SDPA、gradient checkpointing、FSDP1 FULL_SHARD。27B 保持 BF16 混合精度；397B 使用下述独立纯 FP16 配方。每卡训练 batch=16、梯度累积=1、8 帧/轨迹；27B 默认训练 5,000 step、学习率 `1e-5`，397B 保持 15,000 step、学习率 `5e-6`。一个 batch 样本是一个 preference pair，包含两条轨迹。评估 batch 仍为每卡 1，两个模型都每 500 step 评估一次。
+默认完整语言主干 + 三个奖励头训练，冻结视觉编码器，SDPA、gradient checkpointing、FSDP1 FULL_SHARD。27B 保持 BF16 混合精度、每卡训练 batch=16；397B 使用下述独立纯 FP16 配方、完整逐层 checkpoint、每卡训练 batch=4。两者均为梯度累积=1、8 帧/轨迹；27B 默认训练 5,000 step、学习率 `1e-5`，397B 默认训练 3,000 step、学习率 `5e-6`。一个 batch 样本是一个 preference pair，包含两条轨迹。评估 batch 仍为每卡 1，两个模型都每 500 step 评估一次。
 
-两个 B200 配方都设置 `data.dataset_num_repeats=1`，按真实数据集长度洗牌，Trainer 自动重复 epoch 直到各配方的 `training.max_steps`：27B 为 5,000，397B 为 15,000。原项目默认用 `RepeatedDataset(..., num_repeats=1000)`：全量过滤后的 1,041,377 条轨迹被虚拟扩大成 1,041,377,000 条，随机 sampler 会为每个 rank 建立十亿项 Python 索引列表，导致巨额 CPU 内存和 GC 停顿。纯 CPU 复现中该列表占约 38.9 GiB，GC 耗时 9.1–15.7 秒，而百万项列表约 0.008 秒。该 GC 修复保留自动 GC，不改变 batch、帧数、学习率或当时的 max_steps；采样顺序和 epoch 定义改变为“每个真实 epoch 洗牌一次”。其他旧配方的默认重复倍数仍为 1000，只有 B200 配方覆盖为 1。
+两个 B200 配方都设置 `data.dataset_num_repeats=1`，按真实数据集长度洗牌，Trainer 自动重复 epoch 直到各配方的 `training.max_steps`：27B 为 5,000，397B 为 2,000。原项目默认用 `RepeatedDataset(..., num_repeats=1000)`：全量过滤后的 1,041,377 条轨迹被虚拟扩大成 1,041,377,000 条，随机 sampler 会为每个 rank 建立十亿项 Python 索引列表，导致巨额 CPU 内存和 GC 停顿。纯 CPU 复现中该列表占约 38.9 GiB，GC 耗时 9.1–15.7 秒，而百万项列表约 0.008 秒。该 GC 修复保留自动 GC，不改变 batch、帧数、学习率或当时的 max_steps；采样顺序和 epoch 定义改变为“每个真实 epoch 洗牌一次”。其他旧配方的默认重复倍数仍为 1000，只有 B200 配方覆盖为 1。
 
 旧配置的 checkpoint 恢复到新采样方式时，模型/优化器步数仍可恢复，但数据跳过位置不与原先十亿项排列等价；本次调试没有保存 checkpoint，正式实验应从新配置开始。CPU 复现记录位于 `logs/rank_wait_full_native/list_gc_reproduction.json`。
 
@@ -60,7 +60,7 @@ RUN_NAME=rbm_qwen27b_single_bs2 bash run_scripts/train_single_b200.sh 27b \
   data.max_frames=8 training.learning_rate=1e-5
 ```
 
-有效 batch = 节点数 × 每节点 GPU 数 × 每卡 batch × 累积步数。默认正式训练保持每卡 batch=16、累积步数=1，因此单机 8 卡为 128 对轨迹/更新，五机 40 卡为 640 对，八机 64 卡为 1024 对。27B 的 5,000 步在单机和五机分别累计处理 64 万和 320 万对采样样本；397B 的 15,000 步在单机和八机分别为 192 万和 1536 万对。上述计数包含重复采样及增强，不能等同于独立原始轨迹数；学习率没有随 batch 自动放大。
+有效 batch = 节点数 × 每节点 GPU 数 × 每卡 batch × 累积步数。正式训练默认累积步数=1：27B 每卡 batch=16，单机 8 卡、五机 40 卡、八机 64 卡分别为 128、640、1024 对轨迹/更新；397B 每卡 batch=4，分别为 32、160、256 对。27B 的 5,000 步在单机和五机分别累计处理 64 万和 320 万对采样样本；397B 的 3,000 步在单机、五机和八机分别为 9.6 万、48 万和 76.8 万对。上述计数包含重复采样及增强，不能等同于独立原始轨迹数；学习率没有随 batch 自动放大。
 
 FSDP1 梯度累积期间的 `no_sync` 会保留未分片梯度，显著增加峰值显存；397B 建议保留累积步数 1，先调每卡 batch。
 
@@ -72,9 +72,34 @@ FSDP1 梯度累积期间的 `no_sync` 会保留未分片梯度，显著增加峰
 
 397B 专用 AdamW 使用 epsilon=1e-4（1e-8 在 FP16 中会舍入到 0），foreach=false、fused=false，避免 foreach 的额外整组参数临时张量。未启用 AMP GradScaler。优化器 step 计数器仍是标量 FP32；模型内部的归一化、路由 softmax、FLA 累加和 loss 可以保留 FP32 运算，这不是额外的 FP32 主权重或参数大小的优化器状态。
 
+2026-10-03 首步 NaN 排查：对真实预训练权重做 64-token 短文本逐层前向（无 optimizer/反向/FSDP），在语言层索引 22 的 shared expert `down_proj` 复现 FP16 Inf。相同输入下，gate/up 投影及中间乘法均有限，但 FP32 输出投影最大绝对值约 280,501，超过 FP16 的 65,504；乘共享专家门控后最大仅约 38.6。现仅针对 FP16 Qwen3.5 MoE，将共享专家中间乘法、输出投影以及门控合并留在 FP32，合并路由专家输出后转回 FP16。所有参数、参数梯度和 AdamW 状态仍为 FP16，不增加持久 FP32 主权重；BF16 的 4B/27B 路径不变。新增的是局部临时 FP32 张量，不能保证完整模型的其他层、长输入和反向都不会溢出。
+
 纯 FP16 比混合精度更易发生溢出、梯度/二阶动量下溢以及微小参数更新舍入；调整 epsilon 不能消除这些问题。这里是用户选择的省显存实验配方，不等价于已经验证完整 397B 收敛。按本地语言主干约 4019 亿参数、每参数 8 字节持久状态计算，约 3.22 TB，40 卡约 74.9 GiB/卡，未计激活、冻结视觉、通信聚合和临时缓冲，不能当作实际峰值承诺。
 
-现有 `train_single_b200.sh 397b`、`train_multi_b200.sh 397b` 和 `debug_b200.sh 397b` 自动采用该配方。训练步数、batch、帧数、FLA/SDPA 和评估/保存周期不因此修改。已有混合精度实验请勿直接复用同名输出目录；本改动不保证旧精度 checkpoint 切换后的数值等价。
+现有 `train_single_b200.sh 397b`、`train_multi_b200.sh 397b` 和 `debug_b200.sh 397b` 自动采用该配方。397B 正式训练默认每卡 batch=4，只在 qwen397b.yaml 覆盖；调试入口仍默认 batch=1，可通过命令参数覆盖。397B 正式训练 3,000 步，每 1,000 步保存一次，保留全部 3 份 checkpoint；帧数、FLA/SDPA 和每 500 步评估不变。已有混合精度实验请勿直接复用同名输出目录；本改动不保证旧精度 checkpoint 切换后的数值等价。
+
+2026-10-03 的 40 卡 batch=8 数值诊断已通过前向并进入反向，但在 FLA/Triton 反向内核自动调优时 OOM；日志确认 87 个 FSDP checkpoint wrapper 生效。现将 397B 正式默认 batch 降为每卡 4、全局 160，累积步数仍为 1。batch=4 尚未完成完整模型容量验证，应至少连续跑 3 个 optimizer step，覆盖 AdamW 状态分配后的反向峰值；不能只用首步前向判断显存是否足够。
+
+若首次前向后出现 `average_precision_score: Input contains NaN`，表示成功率预测已经含 NaN，指标函数只是发现问题。`ConstantInputWarning` 则表示 Spearman 输入为常量，本项目将该相关系数记为 0，不会把它写回模型预测。纯 FP16 训练现会在奖励头输出处直接检查 NaN/Inf 并报错，不将异常预测替换为 0。用以下命令在平台的全部 5 个节点启动一次数值诊断：
+
+```bash
+ROBOMETER_CHECK_NUMERICS=1 RUN_NAME=rbm_qwen397b_bs4_diag_001 \
+  bash /mnt/liuzihao/project/robometer/run_scripts/train_multi_b200.sh 397b \
+  training.max_steps=3
+```
+
+该开关仅支持 397B：保留正式 batch=4、8 帧、原图尺寸、40 卡和精度配置，默认最多 1 个 optimizer step（上例显式改为 3 步），强制关闭 W&B、评估和 checkpoint 保存。每个叶子模块及目标 block 检查输出，发现 NaN/Inf 立即报出模块路径并写 `logs/<RUN_NAME>/first_nonfinite_rank_<rank>.json`；这会增加 GPU 同步开销，仅用于定位异常。它不修复数值问题，也不能保证不同样本的错误必然复现。移除该环境变量即恢复正式训练。FSDP 日志同时报告 checkpoint wrapper 数量；Transformers 的 `gradient_checkpointing=False` 不代表 FSDP checkpoint 未开启。
+
+如果作业长期停在首步、平台无法进入终端，可重新提交阶段诊断（先停止旧作业，使用新 RUN_NAME）：
+
+```bash
+ROBOMETER_TRACE_PROGRESS=1 ROBOMETER_CHECK_NUMERICS=0 \
+RUN_NAME=rbm_qwen397b_bs4_trace_001 \
+  bash /mnt/liuzihao/project/robometer/run_scripts/train_multi_b200.sh 397b \
+  training.max_steps=3
+```
+
+阶段诊断同样禁用 W&B、评估和保存，保留每卡 batch=4 和实际输入，但关闭逐模块 finite 检查以减少同步开销。每个 rank 每 30 秒打印 `[ROBOMETER_PROGRESS]` 并追加 `progress_rank_<rank>.jsonl`，记录步数、前向/反向/优化器阶段、最近模块与 PyTorch 显存；每 120 秒写 `stacks_rank_<rank>.log`。模块事件记录的是 CPU 执行位置，不是 CUDA 同步完成时刻；应结合所有 rank 的栈判断计算、编译或通信等待。首次更新完成后才会出现 `pure_fp16_rank_<rank>.json`，不能仅凭 GPU 利用率或 DATA SOURCE 日志判断训练已完成一步。移除诊断开关和 max_steps 覆盖后才恢复正式 2,000 步训练。
 
 验证记录：4 项纯 FP16 配置/优化器测试、原有梯度累积回归通过；27B/397B 五机命令预演分别选择原有/独立 FSDP 配置。两张 B200 上的小型 Qwen3.5 MoE（FLA + SDPA、冻结视觉、三个奖励头、2 个 decoder + 1 个 vision block）完成 2 步真实更新和分片保存，再开启 CPU offload 从 checkpoint-1 恢复到 step 3，均正常退出。测试检查各 rank 的参数、梯度、AdamW 两个动量为 FP16、每一步数值有限且确实发生参数更新、所有目标 block 被 checkpoint 包装；不上传 W&B。记录在 `logs/validation_397b_pure_fp16/`。这不代替完整 397B 权重加载、显存容量或训练收敛验证。
 
@@ -89,11 +114,29 @@ CUDA_VISIBLE_DEVICES=0,1 WANDB_MODE=disabled HF_HUB_OFFLINE=1 \
   --num_cpu_threads_per_process 2 tests/run_pure_fp16_fsdp.py
 ```
 
+### 397B 异常 batch 跳过（2026-10-04）
+
+397B 默认 `training.skip_anomalous_updates=true`、`training.skip_loss_threshold=10.0`。任一 rank 的本地 batch loss 大于 10、loss/头输出出现 NaN/Inf，或全局梯度范数非有限时，所有 rank 一起丢弃这批梯度，不执行 AdamW（包括 weight decay 和状态更新），不推进 scheduler/global_step。有限梯度仍按原来的 `max_grad_norm=10` 裁剪；梯度范数超过 10 本身不是跳过条件。FSDP 仍完成当前反向以清理分片状态，因此跳过更新不意味着省掉该 batch 的全部计算。
+
+总步数 2000、warmup 200、保存 1000/2000 全部按**成功更新**计数。跳过后自动取下一批，必要时进入下一轮数据。rank 0 在 `logs/<RUN_NAME>/skipped_updates.jsonl` 单独追加异常记录，包括尝试次数、成功更新数、累计跳过数、学习率、每个 rank 的 loss/梯度范数/异常输出位置和数据来源。checkpoint 中的 `skipped_update_state.json` 保存实际消费的 epoch/batch 游标，恢复时不会把跳过的 batch 当成未消费数据。
+
+这一路径目前仅支持 397B pure FP16、`gradient_accumulation_steps=1`；4B/27B 保持原来的训练循环。逐模块 `ROBOMETER_CHECK_NUMERICS=1` 诊断仍会直接抛错，正式训练使用 0。异常跳过可避免坏梯度写入权重，不会修复已经损坏的参数，也不处理 OOM 或通信失败。
+
+本机两卡 FSDP + checkpoint + FLA 小型 MoE 注入验证：只在 rank 1 注入大 loss、NaN loss、异常梯度、NaN 头输出，共 6 次尝试、4 次全局跳过、2 次成功更新。逐项断言跳过时参数及 AdamW 状态不变、scheduler 仅推进 2 次；跨 epoch 及 checkpoint 恢复验证通过。完整 40 卡 397B 仍需新作业验证。
+
+```bash
+ROBOMETER_TRACE_PROGRESS=0 ROBOMETER_CHECK_NUMERICS=0 \
+RUN_NAME=rbm_qwen397b_5nodes_2000steps_002 \
+bash /mnt/liuzihao/project/robometer/run_scripts/train_multi_b200.sh 397b
+```
+
 ### 线性注意力内核
 
 两个模型共用 `model.linear_attention_backend=fla`，要求 `fla-core[cuda]==0.5.2` 和 `causal-conv1d==1.7.0`。缺少可用内核会报错，避免静默回退。27B 有 48 个 GatedDeltaNet 层，397B 有 45 个；两者使用同一实现方案，但需要分别验证全模型训练。`attn_implementation=sdpa` 只控制普通/视觉注意力，不代表线性注意力也使用 SDPA。
 
 397B 另设 `model.experts_implementation=eager`：当前 Torch 2.8 的 `torch._grouped_mm` 在 B200/SM100 报错，只支持 SM90。此设置是兼容性回退，不是 MoE 性能优化；更快的专家计算应在兼容的后端/环境中另测。27B 没有这项 MoE 限制。
+
+2026-10-03 的五机阶段诊断显示首步反向持续推进，但从层 59 到层 29 耗时约 56 分钟，每层约 125 秒；`shared_expert_gate` 只是最近完成的重计算模块，Python 栈停在 C++ autograd 引擎，不能将耗时全部归因于该门控或 NCCL。真实尺寸（512 专家、hidden=4096、intermediate=1024、8192 token、top-k=10）两卡 FSDP 对照发现旧 eager 的逐专家权重索引会触发 1024 次 SelectBackward，反复分配/清零整个打包专家参数大小的梯度。现仅在 FP16 Qwen3.5 MoE + eager 加载路径中改为一次 `unbind` 权重视图，反向统一拼接梯度；权重键、形状、dtype、路由和训练目标不变。相同两卡 profiler 基准反向约 13.0 秒降至 1.1 秒；八卡同样配置下旧实现约 33.35–33.47 秒，优化后约 1.85–2.04 秒。两者均为单个真实尺寸专家层（含 FSDP、无完整 backbone），峰值 allocated 未明显变化，尚不能作为完整五机训练的加速比。FP64/FP16 的输出、输入/路由/参数梯度以及未激活专家零梯度对照通过；两卡小型 MoE 的 FSDP、完整 checkpoint、纯 FP16 AdamW 两步更新及分片保存通过。正在运行的旧进程不会热更新此优化。
 
 对照原生实现时，在任一启动脚本末尾追加 `model.linear_attention_backend=torch`。`auto` 则保留 Transformers 自动选择行为。开关作用于模型实例，不修改 `.venv` 内的 Transformers 源码。单机、八机和调试入口均继承共同配置；batch、帧数、学习率和训练目标不因内核选择而改变。
 
@@ -162,7 +205,7 @@ RUN_NAME=rbm_qwen397b_8nodes_001 bash /mnt/liuzihao/project/robometer/run_script
 RUN_NAME=rbm_qwen27b_5nodes_check bash /mnt/liuzihao/project/robometer/run_scripts/train_multi_b200.sh 27b --check-only
 ```
 
-`--check-only` 不启动分布式通信，不能验证跨机网络。`--dry-run` 只生成命令，不做模型/数据完整检查或读取密钥；NPROC_PER_NODE=auto/gpu 且未显式指定 GPUS_PER_NODE 时，仍需查询本容器可见 GPU 数。五台正式启动的每个节点应打印 `5 nodes x 8 GPUs`、自身 node rank、`total GPU workers: 40`、`Effective batch: 640`。若 WORLD_SIZE 或 NPROC_PER_NODE 仍是占位值 1，先修正平台作业参数；脚本不会静默忽略或覆盖这些冲突。正常训练仍读取忽略上传的 `.secrets/wandb_api_key` 或平台挂载的 secret，并开启 W&B；单机调试入口仍不上传。
+`--check-only` 不启动分布式通信，不能验证跨机网络。`--dry-run` 只生成命令，不做模型/数据完整检查或读取密钥；NPROC_PER_NODE=auto/gpu 且未显式指定 GPUS_PER_NODE 时，仍需查询本容器可见 GPU 数。五台正式启动的每个节点应打印 `5 nodes x 8 GPUs`、自身 node rank、`total GPU workers: 40`；27B 应打印 `Effective batch: 640`，397B 为 `Effective batch: 160`。若 WORLD_SIZE 或 NPROC_PER_NODE 仍是占位值 1，先修正平台作业参数；脚本不会静默忽略或覆盖这些冲突。正常训练仍读取忽略上传的 `.secrets/wandb_api_key` 或平台挂载的 secret，并开启 W&B；单机调试入口仍不上传。
 
 脚本进入后先打印 `[robometer launcher] entered` 和必要的分布式变量，不输出完整环境或密钥。若 worker 日志只有 `nslookup ... waiting for master`，先检查 master 的状态与主容器日志；这段等待不在本脚本中，可能来自平台初始化容器。曾观察到 master 因平台注入 NPROC_PER_NODE=auto 被旧版整数检查拒绝而反复退出；当前版本已支持 auto，无需将其手动改为 8。仅凭 worker DNS 等待不能区分 master 启动失败与平台 DNS 故障。
 
@@ -230,9 +273,9 @@ RANK=0 MASTER_ADDR=10.0.0.1 RUN_NAME=preview \
 
 ## 输出与恢复
 
-每 500 step 触发评估；27B 每 1,000 step 保存训练 checkpoint，397B 仍为每 7,500 step。`policy_ranking_samples/step_501/*.json` 保存的是评估样例，不是模型权重；当前评估代码以 global_step + 1 命名该目录。2026-09-29 的首次五机评估在混淆矩阵采样器中失败：旧代码无条件加载 `sentence-transformers/all-MiniLM-L12-v2`，离线缓存缺失会报 LocalEntryNotFoundError，即使 OOD 数据已成功从本地读取。现仅在 `data.load_embeddings=true` 时加载这个辅助模型；Qwen 的 false 配置直接使用任务文本和图片，不需要下载 MiniLM，不改变任务配对或评估项目。已离线验证出错的 USC Trossen 子集：21 条过滤后轨迹，30 个混淆矩阵样例全部成功读取，每个 8 帧；未运行完整多机模型评估。需要 embedding 的旧模型路径仍需预先准备 MiniLM 缓存。
+每 500 step 触发评估；27B 和 397B 均每 1,000 step 保存训练 checkpoint。`policy_ranking_samples/step_501/*.json` 保存的是评估样例，不是模型权重；当前评估代码以 global_step + 1 命名该目录。2026-09-29 的首次五机评估在混淆矩阵采样器中失败：旧代码无条件加载 `sentence-transformers/all-MiniLM-L12-v2`，离线缓存缺失会报 LocalEntryNotFoundError，即使 OOD 数据已成功从本地读取。现仅在 `data.load_embeddings=true` 时加载这个辅助模型；Qwen 的 false 配置直接使用任务文本和图片，不需要下载 MiniLM，不改变任务配对或评估项目。已离线验证出错的 USC Trossen 子集：21 条过滤后轨迹，30 个混淆矩阵样例全部成功读取，每个 8 帧；未运行完整多机模型评估。需要 embedding 的旧模型路径仍需预先准备 MiniLM 缓存。
 
-27B 在 `qwen27b.yaml` 中覆盖 `training.max_steps=5000`、`training.save_steps=1000`、`training.save_total_limit=5`。默认新训完整保留 `logs/<RUN_NAME>/checkpoint-{1000,2000,3000,4000,5000}` 五份权重，不按旧 Spearman 指标挑选 checkpoint。397B 保持 15,000 步、每 7,500 步保存、最近 2 份的配置，对应 `checkpoint-7500` 和 `checkpoint-15000`。训练结束也保存当前 step；到达正常终点时写入已有的同一步目录，不增加第六份 checkpoint。
+27B 在 `qwen27b.yaml` 中覆盖 `training.max_steps=5000`、`training.save_steps=1000`、`training.save_total_limit=5`。默认新训完整保留 `logs/<RUN_NAME>/checkpoint-{1000,2000,3000,4000,5000}` 五份权重，不按旧 Spearman 指标挑选 checkpoint。397B 在 `qwen397b.yaml` 中覆盖 `training.max_steps=2000`、`training.save_steps=1000`、`training.save_total_limit=3`，新训保存 `checkpoint-1000`、`checkpoint-2000` 两份。397B 的 cosine 调度随总步数调整：前 200 步（10%）warmup 到 `5e-6`，随后在第 2000 步衰减到 0。训练结束也保存当前 step；到达正常终点时写入已有的同一步目录，不额外增加一份 checkpoint。
 
 每份 checkpoint 包含 FSDP 分片模型、优化器状态和 Trainer 恢复状态，可继续训练。多机必须将 `logs/<RUN_NAME>` 放在各节点共同可写的共享存储。分片 checkpoint 需要另作完整推理导出，不能直接将其传给 `from_pretrained()`。
 

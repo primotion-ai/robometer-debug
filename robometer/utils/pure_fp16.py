@@ -5,6 +5,7 @@ There is no FP32 master parameter or parameter-sized FP32 AdamW state here.
 """
 
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -59,6 +60,37 @@ class PureFP16Audit(TrainerCallback):
         if not blocks or not set(blocks).issubset(wrapped):
             raise RuntimeError("Pure FP16 requires checkpoint wrappers around every MoE decoder and vision block")
         self.coverage = {name: list(blocks.values()).count(name) for name in names}
+        if os.environ.get("ROBOMETER_TRACE_PROGRESS") == "1":
+            from robometer.utils.training_watchdog import TrainingWatchdog
+
+            self.watchdog = TrainingWatchdog(args.output_dir, self.accelerator.process_index,
+                                             self.accelerator.device)
+            self.watchdog.start(model)
+        if os.environ.get("ROBOMETER_CHECK_NUMERICS") == "1":
+            from robometer.utils.numerics import install_finite_output_hooks
+
+            self.numerics_handles = install_finite_output_hooks(
+                model, output_dir=args.output_dir, rank=self.accelerator.process_index
+            )
+
+    def on_train_end(self, args, state, control, **kwargs):
+        self.close_diagnostics()
+
+    def close_diagnostics(self):
+        if hasattr(self, "watchdog"):
+            self.watchdog.close()
+        for handle in getattr(self, "numerics_handles", []):
+            handle.remove()
+        self.numerics_handles = []
+
+    def on_step_begin(self, args, state, control, **kwargs):
+        if hasattr(self, "watchdog"):
+            self.watchdog.note(phase="forward", step=state.global_step + 1, event="step_begin", module="")
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if hasattr(self, "watchdog"):
+            self.watchdog.note(phase="step_complete", step=state.global_step, event="step_end", module="")
+            self.watchdog._snapshot()
 
     @staticmethod
     def _check_params(model):
@@ -67,6 +99,8 @@ class PureFP16Audit(TrainerCallback):
                 raise RuntimeError(f"Pure FP16 parameter {name} unexpectedly has dtype {parameter.dtype}")
 
     def on_pre_optimizer_step(self, args, state, control, model=None, optimizer=None, **kwargs):
+        if hasattr(self, "watchdog"):
+            self.watchdog.note(phase="optimizer", event="pre_optimizer_step", module="")
         if self.audited_update:
             return
         self._check_params(model)
@@ -76,6 +110,8 @@ class PureFP16Audit(TrainerCallback):
                     raise RuntimeError(f"Pure FP16 gradient unexpectedly has dtype {parameter.grad.dtype}")
 
     def on_optimizer_step(self, args, state, control, optimizer=None, **kwargs):
+        if hasattr(self, "watchdog"):
+            self.watchdog.note(phase="optimizer_complete", event="optimizer_step", module="")
         if self.audited_update:
             return
         count = 0

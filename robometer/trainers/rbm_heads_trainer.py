@@ -140,6 +140,14 @@ class RBMHeadsTrainer(Trainer):
 
             validate_pure_fp16_config(config)
             self.add_callback(PureFP16Audit(self.accelerator))
+        self.skipped_updates = None
+        if config.training.skip_anomalous_updates:
+            if not config.training.pure_fp16 or self.args.gradient_accumulation_steps != 1:
+                raise ValueError("Skipped updates require the 397B pure FP16 recipe and accumulation=1")
+            if config.training.skip_loss_threshold <= 0 or not np.isfinite(config.training.skip_loss_threshold):
+                raise ValueError("skip_loss_threshold must be positive and finite")
+            from robometer.utils.skipped_updates import SkippedUpdates
+            self.skipped_updates = SkippedUpdates(self)
         self.log_metadata = collections.defaultdict(float)
         self.global_metadata = collections.defaultdict(float)
         self.timing_raw = collections.defaultdict(float)
@@ -160,6 +168,29 @@ class RBMHeadsTrainer(Trainer):
         # Use loguru logger after it's been initialized
         loguru_logger = get_logger()
         loguru_logger.info(f"DDP find_unused_parameters: {getattr(self.args, 'ddp_find_unused_parameters', 'N/A')}")
+
+    def _run_epoch(self, *args, **kwargs):
+        if self.skipped_updates is not None:
+            return self.skipped_updates.run(**kwargs)
+        return super()._run_epoch(*args, **kwargs)
+
+    def _save_checkpoint(self, model, trial):
+        super()._save_checkpoint(model, trial)
+        if self.skipped_updates is not None:
+            folder = os.path.join(self._get_output_dir(trial=trial), f"checkpoint-{self.state.global_step}")
+            self.skipped_updates.save(folder)
+
+    def _get_grad_norm(self, model, grad_norm=None):
+        norm = super()._get_grad_norm(model, grad_norm=grad_norm)
+        if self.config.training.pure_fp16:
+            from robometer.utils.numerics import check_finite_grad_norm
+
+            # Trainer calls this after clipping and before optimizer.step(),
+            # including when max_grad_norm=0. FSDP returns the global norm.
+            check_finite_grad_norm(norm, output_dir=self.args.output_dir,
+                                   rank=self.accelerator.process_index,
+                                   completed_steps=self.state.global_step)
+        return norm
 
     def create_optimizer(self, model=None):
         """
@@ -387,7 +418,12 @@ class RBMHeadsTrainer(Trainer):
             self._just_resumed_from_checkpoint = True
 
         # Call parent train method
-        result = super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
+        try:
+            result = super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
+        finally:
+            for callback in self.callback_handler.callbacks:
+                if hasattr(callback, "close_diagnostics"):
+                    callback.close_diagnostics()
 
         return result
 
@@ -1851,7 +1887,7 @@ class RBMHeadsTrainer(Trainer):
                 preference_loss, loss_dict = self._compute_preference_loss(
                     model, preference_inputs, return_outputs=True, training=training
                 )
-                if not torch.isnan(preference_loss).any():
+                if self.skipped_updates is not None or not torch.isnan(preference_loss).any():
                     total_loss += preference_loss
                 else:
                     logger.warning(f"NaN detected in preference loss, replacing with 0.0")
@@ -1863,7 +1899,7 @@ class RBMHeadsTrainer(Trainer):
                 progress_loss, loss_dict = self._compute_progress_loss(
                     model, progress_inputs, return_outputs=True, training=training
                 )
-                if not torch.isnan(progress_loss).any():
+                if self.skipped_updates is not None or not torch.isnan(progress_loss).any():
                     total_loss += progress_loss
                 else:
                     logger.warning(f"NaN detected in progress loss, replacing with 0.0")
@@ -1874,7 +1910,7 @@ class RBMHeadsTrainer(Trainer):
             if isinstance(value, torch.Tensor):
                 logger.trace(f"\t{key}: shape={value.shape}")
         # Check for NaN in total loss before returning
-        if torch.isnan(total_loss).any():
+        if self.skipped_updates is None and torch.isnan(total_loss).any():
             logger.warning(f"NaN detected in total_loss, replacing with 0.0")
             total_loss = torch.tensor(0.0, device=total_loss.device, dtype=total_loss.dtype)
 
@@ -2355,6 +2391,15 @@ class RBMHeadsTrainer(Trainer):
                 model_output, model_timing_raw = model(**model_kwargs)
                 logger.trace("forward_model: Model forward pass completed")
 
+            if self.config.training.pure_fp16 and not (self.skipped_updates is not None and model.training):
+                from robometer.utils.numerics import check_finite_outputs
+
+                check_finite_outputs(
+                    {name: getattr(model_output, name, None)
+                     for name in ("pref_logits", "progress_logits", "success_logits")},
+                    location=f"{sample_type}_outputs", output_dir=self.args.output_dir,
+                    rank=get_rank(), step=self.state.global_step,
+                )
             logger.trace("forward_model: Updating timing and returning")
             self.timing_raw.update(model_timing_raw)
             return model_output, model_timing_raw
@@ -2372,6 +2417,11 @@ class RBMHeadsTrainer(Trainer):
                                  Set to False for single-frame training where strategies aren't used
         """
         model_output, _ = self.forward_model(model, inputs, sample_type="progress")
+        if self.skipped_updates is not None and training and model.training:
+            rejected_loss = self.skipped_updates.rejected_outputs(model_output)
+            if rejected_loss is not None:
+                return (rejected_loss, {}) if return_outputs else rejected_loss
+
         progress_logits = model_output.progress_logits
         progress_pred = progress_logits["A"]
         progress_target = inputs["target_progress"]
@@ -2398,13 +2448,13 @@ class RBMHeadsTrainer(Trainer):
                 quality_labels=quality_labels,
             )
             # success_loss is already balanced via per-sample weighting of minority class
-            if not torch.isnan(success_loss).any():
+            if self.skipped_updates is not None or not torch.isnan(success_loss).any():
                 final_loss += success_loss
             else:
                 logger.warning(f"NaN detected in success loss")
 
         # Check for NaN in final loss
-        if torch.isnan(final_loss).any():
+        if self.skipped_updates is None and torch.isnan(final_loss).any():
             if training:
                 import ipdb
 
@@ -2481,6 +2531,11 @@ class RBMHeadsTrainer(Trainer):
     def _compute_preference_loss(self, model, inputs, return_outputs=False, training=True):
         """Compute preference prediction loss using Bradley-Terry model."""
         model_outputs, model_timing_raw = self.forward_model(model, inputs, sample_type="preference")
+        if self.skipped_updates is not None and training and model.training:
+            rejected_loss = self.skipped_updates.rejected_outputs(model_outputs)
+            if rejected_loss is not None:
+                return (rejected_loss, {}) if return_outputs else rejected_loss
+
         progress_logits = model_outputs.progress_logits
 
         # Get preference labels (1 if first trajectory is preferred, 0 if second trajectory is preferred)
@@ -2500,7 +2555,7 @@ class RBMHeadsTrainer(Trainer):
 
         final_loss = 0
 
-        if not torch.isnan(preference_loss).any():
+        if self.skipped_updates is not None or not torch.isnan(preference_loss).any():
             final_loss += preference_loss
         else:
             logger.warning(f"NaN detected in preference loss")
@@ -2540,13 +2595,13 @@ class RBMHeadsTrainer(Trainer):
                 quality_labels=quality_labels_A,
             )
             # success_loss is already balanced via per-sample weighting of minority class
-            if not torch.isnan(success_loss).any():
+            if self.skipped_updates is not None or not torch.isnan(success_loss).any():
                 final_loss += success_loss
             else:
                 logger.warning(f"NaN detected in success loss")
 
         # Check for NaN in final loss
-        if torch.isnan(final_loss).any():
+        if self.skipped_updates is None and torch.isnan(final_loss).any():
             logger.warning(f"NaN detected in preference loss")
 
         if return_outputs:

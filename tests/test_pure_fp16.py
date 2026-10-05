@@ -15,10 +15,13 @@ class PureFP16Tests(unittest.TestCase):
         large = compose_config("qwen397b", [])
         validate_pure_fp16_config(large)
         self.assertTrue(large.training.pure_fp16)
+        self.assertTrue(large.training.skip_anomalous_updates)
+        self.assertEqual(large.training.skip_loss_threshold, 10.0)
         self.assertEqual(large.model.torch_dtype, "float16")
         for name in ("config", "qwen27b"):
             cfg = compose_config(name, [])
             self.assertFalse(cfg.training.pure_fp16)
+            self.assertFalse(cfg.training.skip_anomalous_updates)
             self.assertEqual(cfg.training.gradient_checkpointing_backend, "transformers")
             self.assertEqual(cfg.model.torch_dtype, "bfloat16")
         small = compose_config("qwen27b", [])

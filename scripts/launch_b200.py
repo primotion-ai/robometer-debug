@@ -153,6 +153,11 @@ def main():
         parser.error("Extra arguments must be Hydra key=value overrides")
 
     env = os.environ.copy()
+    check_numerics = env.get("ROBOMETER_CHECK_NUMERICS") == "1"
+    trace_progress = env.get("ROBOMETER_TRACE_PROGRESS") == "1"
+    diagnostic = check_numerics or trace_progress
+    if diagnostic and args.model != "397b":
+        parser.error("397b diagnostics require the 397b pure FP16 recipe")
     try:
         nodes, gpus, rank = resolve_topology(args.mode, env)
     except ValueError as error:
@@ -193,6 +198,9 @@ def main():
     env["WANDB_IGNORE_GLOBS"] = ".secrets/*,**/.secrets/*"
 
     runtime = [f"training.exp_name={run_name}"]
+    if diagnostic:
+        # Preserve the real batch/images/topology while locating a first-step NaN.
+        runtime.append(f"training.max_steps={3 if trace_progress else 1}")
     if args.mode == "debug":
         runtime += [
             f"training.max_steps={env.get('DEBUG_STEPS', '3')}",
@@ -204,7 +212,7 @@ def main():
         ]
     # Users can tune debug workload size, but cannot accidentally enable uploads or saves.
     runtime += overrides
-    if args.mode == "debug":
+    if args.mode == "debug" or diagnostic:
         env["WANDB_MODE"] = "disabled"
         env.pop("WANDB_API_KEY", None)
         runtime += [
@@ -224,6 +232,8 @@ def main():
             runtime.append(f"logging.wandb_project={env['WANDB_PROJECT']}")
 
     cfg = compose_config(f"qwen{args.model}", runtime)
+    if diagnostic and not cfg.training.pure_fp16:
+        parser.error("397b diagnostics require the pure_fp16 recipe")
     fsdp_config_name = "b200_fsdp.yaml"
     if cfg.training.pure_fp16:
         if args.model != "397b":
@@ -258,6 +268,13 @@ def main():
     print(f"Effective batch: {nodes * gpus * cfg.training.per_device_train_batch_size * cfg.training.gradient_accumulation_steps} preference pairs/update", flush=True)
     if cfg.training.pure_fp16:
         print("397B pure FP16: FP16 parameters/gradients/AdamW moments; AMP off; FSDP block checkpointing on; AdamW epsilon=1e-4", flush=True)
+    if cfg.training.skip_anomalous_updates:
+        print(f"Anomalous batches: skip globally if loss > {cfg.training.skip_loss_threshold} or "
+              "outputs/loss/gradient norm are non-finite; schedule/checkpoints count successful updates only", flush=True)
+    if check_numerics:
+        print("397B numeric diagnostics: per-module finite checks; W&B/evaluation/checkpoint saving disabled", flush=True)
+    if trace_progress:
+        print("397B progress diagnostics: rank heartbeat every 30s; Python stacks every 120s; W&B/evaluation/checkpoint saving disabled", flush=True)
     print(
         f"Training schedule: {cfg.training.max_steps} steps; eval every {cfg.training.eval_steps}; "
         f"custom eval every {cfg.training.custom_eval_steps}; "

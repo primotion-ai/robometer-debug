@@ -202,6 +202,12 @@ def log_fsdp_diagnostics(model, accelerator=None, logger=None):
 
     # Check gradient checkpointing status
     logger.info("\nGradient Checkpointing:")
+    from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import CheckpointWrapper
+
+    checkpoint_wrappers = sum(isinstance(module, CheckpointWrapper) for module in model.modules())
+    logger.info(f"  FSDP activation checkpoint wrappers: {checkpoint_wrappers}")
+    if checkpoint_wrappers:
+        logger.info("  FSDP checkpointing is active; the separate Transformers flags below may be False")
     gradient_checkpointing_enabled = False
     gradient_checkpointing_info = []
 

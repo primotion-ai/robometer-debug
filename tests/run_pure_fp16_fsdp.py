@@ -22,7 +22,9 @@ from robometer.configs.experiment_configs import ExperimentConfig
 from robometer.models.rbm import RBM
 from robometer.trainers.rbm_heads_trainer import RBMHeadsTrainer
 from robometer.utils.setup_utils import create_training_arguments
-from robometer.utils.qwen_kernels import configure_qwen_linear_attention
+from robometer.utils.qwen_kernels import (
+    configure_qwen_linear_attention, stabilize_qwen_fp16_shared_experts, optimize_qwen_moe_expert_backward,
+)
 from robometer.utils.logger import Logger
 
 
@@ -44,6 +46,25 @@ class FiniteUpdate(TrainerCallback):
         del self.before
 
 
+class SkippedStateAudit(TrainerCallback):
+    def on_step_begin(self, args, state, control, model=None, optimizer=None, **kwargs):
+        # If global_step did not advance since the previous attempt, neither
+        # parameters nor AdamW moments/counters may have changed.
+        if hasattr(self, "previous_step") and state.global_step == self.previous_step:
+            for before, parameter in zip(self.parameters, model.parameters()):
+                assert torch.equal(before, parameter), "Skipped batch changed a parameter"
+            now = optimizer.state_dict()
+            assert now["state"].keys() == self.optimizer_state["state"].keys()
+            for key, values in now["state"].items():
+                for name, value in values.items():
+                    before = self.optimizer_state["state"][key][name]
+                    assert torch.equal(before, value) if isinstance(value, torch.Tensor) else before == value
+        import copy
+        self.previous_step = state.global_step
+        self.parameters = [p.detach().clone() for p in model.parameters()]
+        self.optimizer_state = copy.deepcopy(optimizer.state_dict())
+
+
 class TinyTrainer(RBMHeadsTrainer):
     # Keep the real Trainer FSDP/optimizer/callback/save lifecycle, replace only
     # the production dataset/loss metrics with a tiny three-head objective.
@@ -55,6 +76,21 @@ class TinyTrainer(RBMHeadsTrainer):
         values = [output.pref_logits, *output.progress_logits.values(), *output.success_logits.values()]
         loss = sum(v.float().square().mean() for v in values if v is not None)
         assert torch.isfinite(loss)
+        if os.environ.get("PURE_FP16_TEST_SKIPS") == "1":
+            attempt = self.skipped_updates.attempts
+            if attempt == 5:
+                if self.accelerator.process_index == 1:
+                    output.pref_logits = output.pref_logits * float("nan")
+                rejected = self.skipped_updates.rejected_outputs(output)
+                assert rejected is not None
+                loss = rejected
+            if self.accelerator.process_index == 1:
+                if attempt == 1:
+                    loss = loss + 11  # Finite loss above the threshold on ONE rank.
+                elif attempt == 2:
+                    loss = loss * float("nan")
+                elif attempt == 3:
+                    loss.register_hook(lambda grad: grad * float("inf"))
         return (loss, output) if return_outputs else loss
 
 
@@ -71,6 +107,8 @@ c._attn_implementation = "sdpa"
 c._experts_implementation = "eager"
 c.text_config.use_cache = False
 backbone = configure_qwen_linear_attention(Qwen3_5MoeModel(c), "fla").half()
+stabilize_qwen_fp16_shared_experts(backbone)
+optimize_qwen_moe_expert_backward(backbone)
 backbone.visual.requires_grad_(False)
 tokenizer = SimpleNamespace(convert_tokens_to_ids=lambda t: {"<|prog_token|>": 5, "<|pref_token|>": 6}[t])
 model = RBM(c, SimpleNamespace(tokenizer=tokenizer), tokenizer, base_model=backbone,
@@ -91,10 +129,19 @@ inputs = dict(input_ids=ids, attention_mask=torch.ones_like(ids),
               pixel_values=torch.randn(8, 3 * 2 * 16 * 16, dtype=torch.float16),
               image_grid_thw=torch.tensor([[1, 2, 2], [1, 2, 2]]))
 trainer = TinyTrainer(config=cfg, model=model, args=args, train_dataset=[0] * 8,
-                      data_collator=lambda _: inputs, callbacks=[FiniteUpdate()],
+                      data_collator=lambda _: inputs, callbacks=[FiniteUpdate(), SkippedStateAudit()],
                       logger=Logger(log_to=[], output_dir=root, is_main_process=False))
 trainer.train(resume_from_checkpoint=os.environ.get("PURE_FP16_TEST_RESUME"))
 assert trainer.state.global_step == cfg.training.max_steps
+if os.environ.get("PURE_FP16_TEST_SKIPS") == "1":
+    import json
+    assert trainer.skipped_updates.skipped == 4
+    assert trainer.skipped_updates.attempts == cfg.training.max_steps + 4
+    assert trainer.lr_scheduler.last_epoch == cfg.training.max_steps
+    cursor = json.loads((Path(root) / f"checkpoint-{cfg.training.max_steps}" / "skipped_update_state.json").read_text())
+    assert cursor["skipped"] == 4 and cursor["attempts"] == cfg.training.max_steps + 4
+    print(f"SKIPPED_UPDATES_OK rank={trainer.accelerator.process_index} attempts={trainer.skipped_updates.attempts}", flush=True)
+
 print(f"PURE_FP16_FSDP_OK rank={trainer.accelerator.process_index} steps={trainer.state.global_step}", flush=True)
 faulthandler.cancel_dump_traceback_later()
 torch.distributed.destroy_process_group()

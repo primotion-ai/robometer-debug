@@ -572,7 +572,18 @@ def _load_base_model_standard(
     model_config = AutoConfig.from_pretrained(cfg.base_model_id, trust_remote_code=cfg.trust_remote_code)
     if model_config.model_type in {"qwen3_5", "qwen3_5_moe"}:
         from transformers import Qwen3_5Model, Qwen3_5MoeModel
-        from robometer.utils.qwen_kernels import configure_qwen_linear_attention
+        from robometer.utils.qwen_kernels import (
+            configure_qwen_linear_attention, stabilize_qwen_fp16_shared_experts,
+            optimize_qwen_moe_expert_backward,
+        )
+
+        def finish_qwen_loading(base_model):
+            base_model = configure_qwen_linear_attention(base_model, cfg.linear_attention_backend).to(dtype=torch_dtype)
+            stabilize_qwen_fp16_shared_experts(base_model)
+            if (model_config.model_type == "qwen3_5_moe" and torch_dtype == torch.float16
+                    and cfg.experts_implementation == "eager"):
+                optimize_qwen_moe_expert_backward(base_model)
+            return base_model
 
         model_cls = Qwen3_5MoeModel if model_config.model_type == "qwen3_5_moe" else Qwen3_5Model
         if cfg.experts_implementation is not None:
@@ -591,7 +602,7 @@ def _load_base_model_standard(
             model_config._attn_implementation = extra_kwargs.get("attn_implementation", "sdpa")
             with init_empty_weights():
                 base_model = model_cls(model_config)
-            return configure_qwen_linear_attention(base_model, cfg.linear_attention_backend).to(dtype=torch_dtype)
+            return finish_qwen_loading(base_model)
         base_model, loading_info = model_cls.from_pretrained(
             cfg.base_model_id,
             config=model_config,
@@ -608,7 +619,7 @@ def _load_base_model_standard(
         )
         if loading_info.get("missing_keys") or loading_info.get("mismatched_keys"):
             raise ValueError(f"Incomplete Qwen backbone loading: {loading_info}")
-        return configure_qwen_linear_attention(base_model, cfg.linear_attention_backend).to(dtype=torch_dtype)
+        return finish_qwen_loading(base_model)
 
     # Check if it's Molmo, Qwen3 or Qwen2/2.5
     is_molmo = "Molmo" in cfg.base_model_id

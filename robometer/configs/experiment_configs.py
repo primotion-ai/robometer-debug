@@ -413,6 +413,8 @@ class TrainingConfig:
     prediction_loss_only: bool = field(default=True, metadata={"help": "Only compute loss for the prediction head"})
 
     # Optimizer settings
+    skip_anomalous_updates: bool = field(default=False)
+    skip_loss_threshold: float = field(default=10.0)
     lr_scheduler_type: str = field(default="cosine")
     warmup_steps: int = field(default=0)
     warmup_ratio: float = field(default=0.1)
