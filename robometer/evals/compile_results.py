@@ -49,8 +49,8 @@ def run_quality_preference_eval(results: List[Dict[str, Any]], data_source: Opti
         pred = r.get("preference_pred")
         label = r.get("preference_labels")
         if pred is not None and label is not None:
-            pred = float(pred.item()) if pred.size == 1 else float(pred[0])
-            label = float(label.item()) if label.size == 1 else float(label[0])
+            pred = float(np.asarray(pred).reshape(-1)[0])
+            label = float(np.asarray(label).reshape(-1)[0])
 
             # For datasets without partial_success, extract quality combo; for datasets with partial_success, just validate metadata exists
             chosen_meta = r.get("metadata", {}).get("chosen_metadata", {})

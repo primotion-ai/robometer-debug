@@ -15,6 +15,20 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
+def disable_network_proxies(env):
+    """Use direct connections in preflight and every spawned training worker."""
+    proxy_keys = {
+        "http_proxy", "https_proxy", "all_proxy", "ftp_proxy",
+        "wandb_http_proxy", "wandb_https_proxy", "wandb_x_proxies",
+    }
+    for key in list(env):
+        if key.lower() in proxy_keys:
+            del env[key]
+    # Both Python HTTP clients and the W&B Go service must bypass proxies.
+    env["NO_PROXY"] = "*"
+    env["no_proxy"] = "*"
+
+
 def resolve_topology(mode, env, *, visible_gpu_count=None):
     """Resolve node-level platform variables; auto mode queries CUDA visibility.
 
@@ -145,13 +159,20 @@ def check_data(cfg, root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["single", "multi", "debug"])
-    parser.add_argument("model", choices=["27b", "397b"])
+    parser.add_argument("model", choices=["4b", "27b", "397b"])
     parser.add_argument("--dry-run", action="store_true", help="Print command/config; do not load keys or run preflight/training")
     parser.add_argument("--check-only", action="store_true", help="Check environment, model shards, processor and data; no training")
     args, overrides = parser.parse_known_args()
     if any("=" not in item or item.startswith("--") for item in overrides):
         parser.error("Extra arguments must be Hydra key=value overrides")
 
+    if args.model == "4b" and args.mode == "multi":
+        parser.error("The 4b recipe currently supports single-node and debug launch only")
+
+    # All single/multi/debug shell entrypoints share this launcher. Sanitize
+    # before importing network clients; workers inherit the same clean env.
+    disable_network_proxies(os.environ)
+    print("[robometer launcher] Network proxies disabled; using direct connections", flush=True)
     env = os.environ.copy()
     check_numerics = env.get("ROBOMETER_CHECK_NUMERICS") == "1"
     trace_progress = env.get("ROBOMETER_TRACE_PROGRESS") == "1"
@@ -234,7 +255,7 @@ def main():
     cfg = compose_config(f"qwen{args.model}", runtime)
     if diagnostic and not cfg.training.pure_fp16:
         parser.error("397b diagnostics require the pure_fp16 recipe")
-    fsdp_config_name = "b200_fsdp.yaml"
+    fsdp_config_name = "ddp.yaml" if args.model == "4b" else "b200_fsdp.yaml"
     if cfg.training.pure_fp16:
         if args.model != "397b":
             parser.error("pure_fp16 is supported only by the isolated 397b recipe")
@@ -251,6 +272,8 @@ def main():
         parser.error("FSDP_OFFLOAD_PARAMS must be true or false")
     if offload == "true" and cfg.training.gradient_accumulation_steps != 1:
         parser.error("CPU offload requires gradient_accumulation_steps=1 in this FSDP1 launcher")
+    if args.model == "4b" and offload == "true":
+        parser.error("4b DDP does not use FSDP CPU offload")
     layer = "Qwen3_5Moe" if args.model == "397b" else "Qwen3_5"
     command = [
         sys.executable, "-m", "accelerate.commands.launch",
@@ -258,8 +281,8 @@ def main():
         "--num_machines", str(nodes), "--num_processes", str(nodes * gpus),
         "--machine_rank", str(rank), "--main_process_ip", master, "--main_process_port", port,
         "--num_cpu_threads_per_process", env["OMP_NUM_THREADS"],
-        "--fsdp_transformer_layer_cls_to_wrap", f"{layer}DecoderLayer,{layer}VisionBlock",
-        "--fsdp_offload_params", offload,
+        *([] if args.model == "4b" else ["--fsdp_transformer_layer_cls_to_wrap",
+             f"{layer}DecoderLayer,{layer}VisionBlock", "--fsdp_offload_params", offload]),
         "scripts/profile_rank_entry.py" if args.mode == "debug" and env.get("ROBOMETER_PROFILE_NATIVE") == "1" else "train.py",
         "--config-name", f"qwen{args.model}", *runtime,
     ]
@@ -293,7 +316,7 @@ def main():
     if torch.cuda.device_count() < gpus:
         raise ValueError(f"Requested {gpus} GPUs but only {torch.cuda.device_count()} are visible; check the platform GPU allocation")
     actual = AutoConfig.from_pretrained(cfg.model.base_model_id, local_files_only=True)
-    expected = "qwen3_5_moe" if args.model == "397b" else "qwen3_5"
+    expected = {"4b": "qwen3_vl", "27b": "qwen3_5", "397b": "qwen3_5_moe"}[args.model]
     if actual.model_type != expected:
         raise ValueError(f"Expected {expected}; found {actual.model_type} in {cfg.model.base_model_id}")
     if cfg.model.linear_attention_backend == "fla":
@@ -309,7 +332,7 @@ def main():
     if args.check_only:
         print("Preflight passed; no training or W&B upload performed.")
         return
-    if args.mode != "debug" and not env.get("WANDB_API_KEY"):
+    if args.mode != "debug" and not diagnostic and not env.get("WANDB_API_KEY"):
         key_file = Path(env.get("WANDB_API_KEY_FILE", str(ROOT / ".secrets/wandb_api_key")))
         env["WANDB_API_KEY"] = key_file.read_text().strip()
         if not env["WANDB_API_KEY"]:

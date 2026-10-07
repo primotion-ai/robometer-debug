@@ -158,6 +158,9 @@ class RBMConfig:
         default=32,
         metadata={"help": "Batch size for RBM/ReWiND model inference"},
     )
+    strict_offline: bool = False
+    base_model_path: Optional[str] = None
+    balanced_preferences: bool = False
 
 
 @dataclass

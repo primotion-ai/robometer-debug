@@ -31,7 +31,8 @@ class CheckpointScheduleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             for name, steps, interval, limit in (
                 ("qwen27b", 5000, 1000, 5),
-                ("qwen397b", 15000, 7500, 2),
+                ("qwen397b", 2000, 1000, 3),
+                ("qwen4b", 20000, 4000, 5),
             ):
                 with self.subTest(recipe=name):
                     cfg = compose_config(name, [])
@@ -42,6 +43,23 @@ class CheckpointScheduleTests(unittest.TestCase):
                     self.assertEqual(args.save_total_limit, limit)
                     self.assertEqual(args.eval_steps, 500)
                     self.assertEqual(cfg.training.custom_eval_steps, 500)
+
+    def test_4b_production_recipe(self):
+        cfg = compose_config("qwen4b", [])
+        self.assertEqual(cfg.model.torch_dtype, "float32")
+        self.assertEqual(cfg.model.attn_implementation, "sdpa")
+        self.assertEqual(cfg.model.linear_attention_backend, "auto")
+        self.assertFalse(cfg.model.use_unsloth)
+        self.assertTrue(cfg.training.bf16)
+        self.assertEqual(cfg.training.per_device_train_batch_size, 32)
+        self.assertEqual(cfg.training.gradient_accumulation_steps, 1)
+        self.assertEqual(cfg.training.learning_rate, 2e-5)
+        self.assertEqual(cfg.training.warmup_ratio, 0.1)
+        self.assertEqual(cfg.data.dataset_num_repeats, 1)
+        self.assertEqual(cfg.data.max_frames, 8)
+        self.assertIsNone(cfg.data.resized_height)
+        self.assertEqual(list(cfg.logging.save_best.metric_names), [])
+        self.assertIsNone(cfg.logging.save_best.save_every)
 
     def test_retention_can_be_overridden(self):
         with tempfile.TemporaryDirectory() as folder:

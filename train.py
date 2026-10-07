@@ -373,6 +373,11 @@ def train(cfg: ExperimentConfig):
             # resumable checkpoint collectively instead of gathering 397B weights.
             trainer._save_checkpoint(trainer.model, trial=None)
             final_dir = os.path.join(output_dir, f"checkpoint-{trainer.state.global_step}")
+        elif (str(trainer.args.save_strategy).lower() in {"steps", "savestrategy.steps"}
+              and os.path.isfile(os.path.join(output_dir, f"checkpoint-{trainer.state.global_step}", "trainer_state.json"))):
+            # The final scheduled checkpoint is already complete; avoid a
+            # second model export into final/ (notably the 4B DDP recipe).
+            final_dir = os.path.join(output_dir, f"checkpoint-{trainer.state.global_step}")
         else:
             final_dir = os.path.join(output_dir, "final")
             save_final_checkpoint(trainer, final_dir, step=trainer.state.global_step)

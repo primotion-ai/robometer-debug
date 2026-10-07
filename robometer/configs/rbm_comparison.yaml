@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - baseline_eval_config
+  - override reward_model: rbm
+  - _self_
+
+max_frames: 8
+model_config:
+  batch_size: 4
+  strict_offline: true
+  base_model_path: null
+  balanced_preferences: true
+custom_eval:
+  eval_types: [reward_alignment, policy_ranking, quality_preference, confusion_matrix]
+  reward_alignment: [rbm-1m-ood]
+  policy_ranking: [rbm-1m-ood]
+  quality_preference: [rbm-1m-ood]
+  confusion_matrix: [rbm-1m-ood]
+  use_frame_steps: false
+  custom_eval_random_seed: 42
+  reward_alignment_max_trajectories: 10
+  policy_ranking_max_tasks: 100
+  num_examples_per_quality_pr: 5
+  num_partial_successes: 5
+  comparisons_per_task: 5
+  max_comparisons: 100
+  confusion_matrix_n_trajectories_per_source: 5
+  pad_frames: true

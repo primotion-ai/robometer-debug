@@ -18,6 +18,8 @@ uv sync --locked --extra b200 --extra b200-kernels
 
 挂载已有 `.venv` 时，容器还必须具备兼容的 Python 3.10 和系统库；本机 `.venv/bin/python` 链接到 `/usr/bin/python3`，仅挂载目录不会把基础解释器一起打包。不要让所有节点同时对同一个共享 `.venv` 执行 `uv sync`。平台示例中的 `CUDA_VERSION=12.3.1` 不能用来判断实际训练环境；本项目使用 Torch 2.8/cu128，启动检查会打印实际 Torch 版本、Torch CUDA runtime 和可见 GPU 数。保留平台注入的 NVIDIA/CUDA、`LD_LIBRARY_PATH` 和 NCCL/RDMA 环境变量，不用本机值覆盖。
 
+所有 B200 单机、多机和调试入口（包括 4B 专用脚本及 rank 诊断脚本）通过公共启动器默认直连：清除大小写的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`FTP_PROXY` 及 W&B 专用代理变量，并设置 `NO_PROXY=no_proxy=*`。预检查、训练进程和 W&B 子进程继承此设置；无需修改启动命令。只对之后新启动的任务生效，不改变已运行任务的环境。正式训练仍启用 W&B online，需要节点能够直接访问 W&B。
+
 ## 数据、模型和凭据
 
 - `27b` 配置：`robometer/configs/qwen27b.yaml`，权重 `/mnt/base_model/Qwen3.8-27B`。本地模型实际是 Qwen3.8-27B，复用 `qwen3_5` 架构，不能用 Qwen3-VL 类加载。
@@ -318,3 +320,31 @@ FLA 补测（同日）：同样七卡、每卡 batch=16、8 帧、尺寸 null、
 在上述运行结束后，另对固定 `[batch=16, seq=1948, value_heads=48, head_dim=128]` 的 Gated Delta Rule 核心做单卡对照，包含反向、同步计时，首轮预热后测 3 轮：原生平均 0.3407 秒，FLA 平均 0.01408 秒，约 24.2 倍。此结果只覆盖单个线性注意力核心，不含投影、卷积、视觉编码器、FSDP 或优化器，不能外推为整步提速 24 倍。原始结果在上述训练目录的 `linear_kernel_benchmark.jsonl`。
 
 本轮新增验证：dense/MoE 小模型 CUDA 多模态前后向与梯度对照通过；48/64 value heads 的线性注意力输出与梯度对照通过；CPU 权重加载/三头反向、梯度累积测试通过。397B 的 94 个权重分片已通过启动前完整性检查，内核及数据检查通过；没有执行单机 397B 全模型训练。
+
+## 单机 8 卡 Qwen3-VL-4B（2026-10-05）
+
+独立配方 `robometer/configs/qwen4b.yaml` 使用本地原始 Qwen3-VL-4B-Instruct，标准 Transformers + DDP + SDPA，不启用 Unsloth/FLA/MoE 优化。FP32 参数、梯度及 AdamW 状态，BF16 autocast；冻结视觉编码器、训练语言和三个头，开启非重入 gradient checkpointing。每卡 batch=32、累积=1、全局 batch=256；每轨迹最多 8 帧、不指定图像尺寸，DataLoader 每 rank 8 workers，dataset_num_repeats=1。
+
+LR=2e-5，20000 step，warmup 比例 10%（2000 step），cosine 最终衰减到 0。每 500 step 评估，每 4000 step 保存完整 Trainer checkpoint，保留五份；关闭原来的额外 best/latest 保存。正常到达第 20000 步后复用 checkpoint-20000，不再额外导出 final/。单机入口直接加载已挂载的 `.venv`，不执行依赖安装。
+
+正式训练（自动读取忽略上传的 W&B key，仅 rank 0 上传）：
+
+```bash
+GPUS_PER_NODE=8 RUN_NAME=rbm_qwen4b_bs32_8gpu_001 \
+bash /mnt/liuzihao/project/robometer/run_scripts/train_single_4b_b200.sh
+```
+
+保持正式 batch/帧数/全量数据的短测（强制关闭 W&B、评估和保存，默认 3 step）：
+
+```bash
+GPUS_PER_NODE=8 RUN_NAME=rbm_qwen4b_bs32_debug_001 \
+bash /mnt/liuzihao/project/robometer/run_scripts/debug_4b_b200.sh
+```
+
+脚本末尾可添加 Hydra 覆盖，例如 `training.max_steps=5`。`--dry-run` 只显示实际启动命令，`--check-only` 检查本地权重/数据，不训练。397B 的异常跳过功能在 4B 默认关闭，旧 4B `config.yaml`、27B 和 397B 配方不因此改变。
+
+内存监控文本现在写入各自实验目录；该辅助文本写入失败会输出包含实际路径的警告，不中断训练。主日志/异常记录/checkpoint 的磁盘错误仍需处理，这项改动不修复磁盘配额问题。
+
+实测：`logs/rbm_qwen4b_bs32_smoke_001`，全量 RBM-1M、8 卡 DDP、bs32、8 帧、无指定尺寸，完成 4 step，8 ranks 正常结束。loss 约 1.653/1.674/1.215/1.390，梯度范数均有限，无 OOM；各卡 PyTorch peak allocated 103.27–109.64 GiB，peak reserved 105.63–113.19 GiB。rank 0 非 profiler 的第 2/4 步前后向耗时 9.63/11.61 秒，不含优化器；第 3 步含 profiler 和 trace 导出，不用于估计吞吐。启动时数据初始化约 349 秒。
+
+第 3 步真实算子记录确认视觉调用 PyTorch `_scaled_dot_product_flash_attention`，语言层调用 `_scaled_dot_product_efficient_attention` 和相应反向。因此 SDPA 实际使用融合内核，但不等于所有层均走 Flash。4B 没有 GatedDeltaNet，不需要 FLA。完整 OOD 评估与真实 4B checkpoint 写盘尚未在该短测执行；保存周期/保留五份的 Trainer 测试已通过。

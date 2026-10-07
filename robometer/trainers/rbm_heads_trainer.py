@@ -517,7 +517,7 @@ class RBMHeadsTrainer(Trainer):
                 logger.warning(f"Error logging metadata: {e}")
 
         # Log GPU memory usage at every training step for diagnostics
-        log_memory_usage(f"Step {self.state.global_step}")
+        log_memory_usage(f"Step {self.state.global_step}", output_dir=self.args.output_dir)
 
         if os.environ.get("ROBOMETER_PROFILE_TIMING") == "1":
             # Local, per-rank diagnostics; no extra CUDA synchronization or upload.

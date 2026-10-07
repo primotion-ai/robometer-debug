@@ -27,7 +27,7 @@ setup_loguru_logging("TRACE")
 class RBMModel:
     """RBM/ReWiND model for baseline evaluation with unified compute methods."""
 
-    def __init__(self, checkpoint_path: str):
+    def __init__(self, checkpoint_path: str, strict_offline=False, base_model_path=None):
         """Initialize the RBM/ReWiND model wrapper.
 
         Args:
@@ -43,7 +43,11 @@ class RBMModel:
         # Load model, config, processor, and tokenizer using the helper function
         # This handles loading config.yaml from checkpoint and setting up everything
         logger.info(f"Loading model from checkpoint: {checkpoint_path}")
-        exp_config, tokenizer, processor, model = load_model_from_hf(
+        loader = load_model_from_hf
+        if strict_offline:
+            from robometer.evals.checkpoint_loader import load_offline_checkpoint
+            loader = lambda model_path, device: load_offline_checkpoint(model_path, device, base_model_path)
+        exp_config, tokenizer, processor, model = loader(
             model_path=checkpoint_path,
             device=device,
         )
@@ -217,7 +221,7 @@ class RBMModel:
 
         return result
 
-    def compute_batched_progress(self, samples: List[ProgressSample]) -> List[List[float]]:
+    def compute_batched_progress(self, samples: List[ProgressSample], return_success=False) -> List[List[float]]:
         """Compute progress predictions for a batch of trajectories.
 
         Args:
@@ -287,7 +291,14 @@ class RBMModel:
             if isinstance(progress_values, float):
                 progress_values = [progress_values]
 
-            results.append(progress_values)
+            if return_success:
+                success = model_output.success_logits
+                success = success.get('A') if isinstance(success, dict) else success
+                results.append({'progress': progress_values,
+                                'success_probs': torch.sigmoid(success[i].float()).cpu().tolist()
+                                if success is not None else None})
+            else:
+                results.append(progress_values)
 
         return results
 

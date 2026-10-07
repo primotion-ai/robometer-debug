@@ -434,8 +434,16 @@ def log_memory_usage(prefix="", rank=None, output_dir=None):
         output_dir = os.environ.get("OUTPUT_DIR", ".")
 
     memory_log_file = os.path.join(output_dir, f"memory_log_rank{rank}.txt")
-    with open(memory_log_file, "a") as f:
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        f.write(f"{timestamp} | {prefix} | {memory_str}\n")
+    try:
+        with open(memory_log_file, "a") as f:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"{timestamp} | {prefix} | {memory_str}\n")
+    except OSError as error:
+        # Optional telemetry must not terminate a distributed update. Keep
+        # checkpoint and primary-log failures visible; this handles only the
+        # redundant memory text file and reports its exact destination.
+        import sys
+        print(f"[Rank {rank}] Cannot append memory telemetry {memory_log_file}: {error}",
+              file=sys.stderr, flush=True)
 
     return memory_str

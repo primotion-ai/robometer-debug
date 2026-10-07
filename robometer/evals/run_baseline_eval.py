@@ -33,6 +33,8 @@ Usage:
         model_config.batch_size=32
 """
 
+from __future__ import annotations
+
 import copy
 import hashlib
 import json
@@ -60,14 +62,7 @@ from robometer.utils.logger import get_logger
 from robometer.utils.config_utils import display_config, convert_hydra_to_dataclass
 from robometer.data.dataset_types import PreferenceSample, ProgressSample
 from robometer.data.collators.utils import convert_frames_to_pil_images, frames_to_numpy_array
-from robometer.evals.baselines.rlvlmf import RLVLMF
-from robometer.evals.baselines.gvl import GVL
-from robometer.evals.baselines.vlac import VLAC
-
-from robometer.evals.baselines.robodopamine import RoboDopamine
-from robometer.evals.baselines.roboreward import RoboReward
 from robometer.evals.baselines.rbm_model import RBMModel
-from robometer.evals.baselines.topreward import TopReward
 from robometer.evals.compile_results import (
     run_quality_preference_eval,
     run_reward_alignment_eval_per_trajectory,
@@ -355,6 +350,7 @@ def process_batched_rbm_samples(
     dataset,
     model: RBMModel,
     batch_size: int = 32,
+    balanced_preferences: bool = False,
 ) -> List[Dict[str, Any]]:
     """Process RBM/ReWiND samples using batched computation with minibatching.
 
@@ -388,8 +384,9 @@ def process_batched_rbm_samples(
         for batch_start in tqdm(range(0, len(progress_indices), batch_size), desc="Processing progress batches"):
             batch_indices = progress_indices[batch_start : batch_start + batch_size]
             batch = [dataset[i] for i in batch_indices]
-            progress_preds = model.compute_batched_progress(batch)
-            for sample, progress_pred in zip(batch, progress_preds):
+            progress_preds = model.compute_batched_progress(batch, return_success=True)
+            for sample, prediction in zip(batch, progress_preds):
+                progress_pred = prediction['progress']
                 traj = sample.trajectory
 
                 # Build metadata dict - get video_path and frame_step from trajectory metadata
@@ -401,6 +398,7 @@ def process_batched_rbm_samples(
 
                 # Build result dict
                 result = {
+                    "success_probs": prediction['success_probs'],
                     "progress_pred": np.array(progress_pred),
                     "task": traj.task,
                     "data_source": traj.data_source,
@@ -419,8 +417,12 @@ def process_batched_rbm_samples(
         for batch_start in tqdm(range(0, len(preference_indices), batch_size), desc="Processing preference batches"):
             batch_indices = preference_indices[batch_start : batch_start + batch_size]
             batch = [dataset[i] for i in batch_indices]
-            preference_results = model.compute_batched_preference(batch)
-            for sample, result in zip(batch, preference_results):
+            labeled_results = [(s, r, 1.0) for s, r in zip(batch, model.compute_batched_preference(batch))]
+            if balanced_preferences:
+                reverse = [PreferenceSample(chosen_trajectory=s.rejected_trajectory,
+                                            rejected_trajectory=s.chosen_trajectory) for s in batch]
+                labeled_results += [(s, r, 0.0) for s, r in zip(reverse, model.compute_batched_preference(reverse))]
+            for sample, result, preference_label in labeled_results:
                 chosen_traj = sample.chosen_trajectory
                 rejected_traj = sample.rejected_trajectory
 
@@ -452,8 +454,9 @@ def process_batched_rbm_samples(
                     "preference_pred": float(preference_pred)
                     if preference_pred is not None
                     else (float(prediction_prob) if prediction_prob is not None else None),
-                    "preference_labels": 1.0,  # Always 1.0 because chosen trajectory is always preferred by construction
-                    "is_correct": bool(is_correct) if is_correct is not None else None,
+                    "preference_labels": preference_label,
+                    "prediction_prob": float(prediction_prob) if prediction_prob is not None else None,
+                    "is_correct": bool(preference_pred == preference_label) if preference_pred is not None else None,
                     "task": chosen_traj.task,
                     "data_source": chosen_traj.data_source or rejected_traj.data_source,
                     "chosen_data_gen_strategy": chosen_traj.data_gen_strategy,
@@ -477,27 +480,39 @@ def run_baseline_evaluation(cfg: BaselineEvalConfig, base_data_cfg: DataConfig) 
     )
 
     if cfg.reward_model == "rlvlmf":
+        from robometer.evals.baselines.rlvlmf import RLVLMF
         model = RLVLMF(**model_config_dict)
     elif cfg.reward_model == "gvl":
+        from robometer.evals.baselines.gvl import GVL
         # API key is read from GEMINI_API_KEY environment variable if not provided
         model = GVL(max_frames=cfg.max_frames, **model_config_dict)
     elif cfg.reward_model == "vlac":
+        from robometer.evals.baselines.vlac import VLAC
         if not cfg.model_path:
             raise ValueError("model_path is required for VLAC baseline")
         model = VLAC(model_path=cfg.model_path, **model_config_dict)
     elif cfg.reward_model == "robodopamine":
+        from robometer.evals.baselines.robodopamine import RoboDopamine
         if not cfg.model_path:
             raise ValueError("model_path is required for Robo-Dopamine baseline")
         model = RoboDopamine(model_path=cfg.model_path, **model_config_dict)
     elif cfg.reward_model == "topreward":
+        from robometer.evals.baselines.topreward import TopReward
         model_path = cfg.model_path or "Qwen/Qwen3-VL-8B-Instruct"
         model = TopReward(model_path=model_path, **model_config_dict)
     elif cfg.reward_model == "roboreward":
+        from robometer.evals.baselines.roboreward import RoboReward
         model = RoboReward(model_path=cfg.model_path or "teetone/RoboReward-4B", **model_config_dict)
     elif cfg.reward_model in ["rewind", "rbm"]:
         if not cfg.model_path:
             raise ValueError("model_path is required for RBM/ReWiND reward model")
-        model = RBMModel(checkpoint_path=cfg.model_path)
+        model = RBMModel(checkpoint_path=cfg.model_path,
+                         strict_offline=model_config_dict.get('strict_offline', False),
+                         base_model_path=model_config_dict.get('base_model_path'))
+        report = getattr(model.model, 'checkpoint_load_report', None)
+        if report:
+            with open(os.path.join(cfg.output_dir, 'checkpoint_load_report.json'), 'w') as f:
+                json.dump(report, f, indent=2)
     else:
         raise ValueError(
             f"Unknown reward_model: {cfg.reward_model}. Must be 'rlvlmf', 'gvl', 'vlac', 'robodopamine', 'topreward', 'roboreward', 'rbm', or 'rewind'"
@@ -574,6 +589,7 @@ def run_baseline_evaluation(cfg: BaselineEvalConfig, base_data_cfg: DataConfig) 
                 sampler_kwargs["pad_frames"] = cfg.custom_eval.pad_frames
             elif eval_type == "confusion_matrix":
                 sampler_kwargs["pad_frames"] = cfg.custom_eval.pad_frames
+                sampler_kwargs["n_trajectories_per_source"] = cfg.custom_eval.confusion_matrix_n_trajectories_per_source
             elif "quality_preference" in eval_type:
                 sampler_kwargs["comparisons_per_task"] = cfg.custom_eval.comparisons_per_task
                 sampler_kwargs["max_comparisons"] = cfg.custom_eval.max_comparisons
@@ -594,7 +610,9 @@ def run_baseline_evaluation(cfg: BaselineEvalConfig, base_data_cfg: DataConfig) 
                     if hasattr(cfg.model_config, "__dataclass_fields__")
                     else cfg.model_config.__dict__
                 )
-                batch_results = process_batched_rbm_samples(dataset, model, batch_size=model_config_dict["batch_size"])
+                batch_results = process_batched_rbm_samples(
+                    dataset, model, batch_size=model_config_dict["batch_size"],
+                    balanced_preferences=model_config_dict.get('balanced_preferences', False))
                 eval_results.extend(batch_results)
             else:
                 # For other models, process samples one at a time
@@ -730,6 +748,9 @@ def run_baseline_evaluation(cfg: BaselineEvalConfig, base_data_cfg: DataConfig) 
                             data_source=data_source,
                             correlation_method="kendall",
                         )
+                        if cfg.reward_model in ['rbm', 'rewind'] and not cfg.custom_eval.use_frame_steps:
+                            from robometer.evals.success_metrics import final_success_metrics
+                            metrics_dict.update(final_success_metrics(eval_results))
                         # Save task_groups and task_details if available
                         if eval_type_dir:
                             task_groups_file = os.path.join(eval_type_dir, f"{short_dataset_name}_task_groups.json")
@@ -815,6 +836,11 @@ def main(cfg: DictConfig):
     """Main entry point for baseline evaluation."""
     # Convert Hydra config to dataclass
     baseline_cfg = convert_hydra_to_dataclass(cfg, BaselineEvalConfig)
+    import random
+    import torch
+    random.seed(baseline_cfg.custom_eval.custom_eval_random_seed)
+    np.random.seed(baseline_cfg.custom_eval.custom_eval_random_seed)
+    torch.manual_seed(baseline_cfg.custom_eval.custom_eval_random_seed)
 
     # Display config
     display_config(baseline_cfg)
@@ -838,6 +864,8 @@ def main(cfg: DictConfig):
 
     os.makedirs(baseline_cfg.output_dir, exist_ok=True)
     logger.info(f"Output directory: {baseline_cfg.output_dir}")
+    from omegaconf import OmegaConf
+    OmegaConf.save(cfg, os.path.join(baseline_cfg.output_dir, 'eval_config.yaml'))
 
     # Create data config with default settings
     # Datasets will be set per eval type during processing
