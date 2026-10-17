@@ -1,0 +1,10 @@
+__pycache__/
+runs/
+*.local.json
+/outputs*/
+/.cache/
+/cache/
+*.log
+.env
+.env.*
+!.env.example

@@ -1,0 +1,21 @@
+{
+  "data_root": "/mnt/workspace/dataset/robometer-1m",
+  "reference": {
+    "category": "abraranwar_libero_rfm_libero256_10",
+    "id": "REPLACE_WITH_REFERENCE_ID",
+    "keyframes": [10, 25, 40]
+  },
+  "target": {
+    "category": "abraranwar_libero_rfm_libero256_10",
+    "id": "REPLACE_WITH_TARGET_ID"
+  },
+  "instruction": "REPLACE_WITH_SHARED_TASK_INSTRUCTION",
+  "model": "gpt-6-astra",
+  "reasoning": "high",
+  "batch_size": 16,
+  "context_frames": 2,
+  "overview_frames": 8,
+  "reference_neighbors": 1,
+  "max_image_side": 768,
+  "timeout": 900
+}

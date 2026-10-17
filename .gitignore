@@ -6,6 +6,7 @@ venv_robodopamine.txt
 baseline_eval_output/*
 *.py[cod]
 .venv/
+.uv-python/
 .secrets/
 logs/
 wandb/

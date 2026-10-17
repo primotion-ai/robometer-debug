@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Robometer · Dataset Explorer</title>
+<style>
+:root{color-scheme:dark;--bg:#101513;--panel:#19221d;--line:#304136;--muted:#9aad9f;--accent:#c4ef8d}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#edf5ed;font:14px/1.6 system-ui,sans-serif}header{padding:26px 4vw;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px}h1{margin:0;font-size:25px;letter-spacing:-1px}small,.muted{color:var(--muted)}.brand{font-size:11px;letter-spacing:3px;color:var(--accent)}main{max-width:1600px;margin:auto;padding:28px 4vw}.layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:24px}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:20px}h2{font-size:16px;margin:0 0 16px}label{display:block;color:var(--muted);margin:14px 0 6px}input,select,button,a.button{font:inherit;border:1px solid var(--line);border-radius:8px;background:#111914;color:#edf5ed;padding:10px;max-width:100%}input:not([type=range]),select{width:100%}select{cursor:pointer}button,a.button{cursor:pointer;text-decoration:none;display:inline-block}button:hover,a.button:hover{border-color:var(--accent)}button:disabled{opacity:.35;cursor:default}.primary{background:var(--accent);color:#162011;border:0}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.between{justify-content:space-between}.viewer{background:#090e0b;border-radius:10px;min-height:300px;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}.viewer img{width:100%;height:430px;object-fit:contain}.viewer p{padding:30px;color:var(--muted)}input[type=range]{width:100%;accent-color:var(--accent);padding:0;cursor:ew-resize}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}.stat{border-left:2px solid var(--accent);padding-left:12px}.stat strong{display:block;font-size:20px}.stat small{font-size:11px}#task{font-size:22px;line-height:1.35;margin:12px 0}#identity{font-family:monospace;overflow-wrap:anywhere;font-size:12px;color:var(--muted)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 ui-monospace,monospace;max-height:480px;overflow:auto;background:#101813;padding:16px;border-radius:8px}details{border-top:1px solid var(--line);padding:13px 0}summary{cursor:pointer;font-weight:600}#status{min-height:24px;color:var(--accent);margin-bottom:16px}.error{color:#ffa69e!important}.tag{border-radius:20px;background:#2b3d25;color:var(--accent);padding:4px 12px;font-size:12px}.help{font-size:12px;color:var(--muted)}#root{overflow-wrap:anywhere}.hidden{display:none!important}.paging{margin-top:12px}.paging button{padding:4px 12px}@media(max-width:900px){.layout{grid-template-columns:1fr}.viewer img{height:320px}header{align-items:flex-start;flex-direction:column}.stats{grid-template-columns:repeat(2,1fr)}}
+
+.eval-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.eval-item{background:#111914;border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}.eval-item strong{display:block;font-size:19px;margin:7px 0;overflow-wrap:anywhere}.eval-item p{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}.eval-item[data-tone="success"] strong{color:var(--accent)}.eval-item[data-tone="warning"] strong{color:#f0ce87}.eval-item[data-tone="failure"] strong{color:#ffa69e}.position-track{height:7px;background:var(--line);border-radius:8px;overflow:hidden;margin:12px 0}.position-track span{display:block;height:100%;background:var(--accent);width:0;transition:width .1s}.eval-note{border-left:2px solid var(--accent);padding-left:12px;margin-bottom:0;color:var(--muted);font-size:12px}@media(max-width:600px){.eval-grid{grid-template-columns:1fr}}
+.quality-bars{margin-top:12px}.quality-bar{display:flex;align-items:center;gap:12px;margin:6px 0}.quality-bar span{min-width:80px}.quality-bar progress{width:100%;height:12px;accent-color:var(--accent)}.peer-list{display:flex;flex-direction:column;gap:7px;max-height:250px;overflow:auto;margin-top:12px}.peer-list button{text-align:left;overflow-wrap:anywhere;font-size:12px}.peer-list button:disabled{opacity:.65;border-color:var(--accent)}
+</style>
+</head>
+<body>
+<header><div><div class="brand">ROBOMETER / DATA TOOLS</div><h1>轨迹数据浏览器</h1></div><span class="tag" id="count">正在连接数据集</span></header>
+<main><div id="status" role="status" aria-live="polite">正在读取子集列表…</div><div class="layout">
+<aside><div class="card"><h2>选择数据</h2><label for="subsetSearch">筛选子集</label><input id="subsetSearch" placeholder="输入子集名称，例如 trossen">
+<label for="subset">子集</label><select id="subset"></select>
+<label for="query">搜索轨迹 ID</label><input id="query" placeholder="支持 ID 片段搜索">
+<label for="trajectory">轨迹 ID</label><select id="trajectory" size="8" style="font-family:monospace;font-size:12px"></select>
+<div class="row between paging"><button id="prevPage">上一页</button><small id="page"></small><button id="nextPage">下一页</button></div>
+<p class="help">每页最多 100 条。选择一条轨迹后加载它的全部缓存帧；行号从 0 开始。</p></div>
+<div class="card"><h2>数据位置</h2><small id="root"></small><p class="help">只读浏览，不修改数据。兼容预处理缓存中的旧路径前缀。</p></div></aside>
+<section><div class="card"><div class="row between"><span class="brand">TRAJECTORY INSPECTOR</span><span id="quality" class="tag">尚未选择</span></div><h2 id="task">选择子集与轨迹</h2><div id="identity"></div>
+<div class="stats" style="margin-top:22px"><div class="stat"><small>缓存帧数</small><strong id="nframes">—</strong></div><div class="stat"><small>画面尺寸</small><strong id="resolution">—</strong></div><div class="stat"><small>数据类型</small><strong id="dtype">—</strong></div><div class="stat"><small>轨迹行号</small><strong id="rownum">—</strong></div></div>
+<div class="viewer"><p id="placeholder">选中轨迹后在这里浏览图像</p><img id="frame" class="hidden" alt="轨迹帧"></div>
+<div class="row between" style="margin-top:16px"><div class="row"><button id="back" disabled>← 上一帧</button><button id="play" class="primary" disabled>播放</button><button id="forward" disabled>下一帧 →</button></div><span id="frameLabel">— / —</span></div>
+<label for="slider" class="help">拖动浏览缓存帧</label><input id="slider" type="range" min="0" max="0" value="0" disabled>
+<div class="row between"><small>播放速度仅用于预览，不代表原始视频 FPS</small><select id="speed" aria-label="预览播放速度" style="width:auto"><option value="2">2 帧/秒</option><option value="4" selected>4 帧/秒</option><option value="8">8 帧/秒</option></select></div></div>
+<div class="card" id="evaluation"><div class="row between"><h2>进度评价信息</h2><span class="tag">训练数据解读</span></div>
+<p id="evalEmpty" class="muted">选择轨迹后，查看同任务质量分布、训练用途和实际比较轨迹。</p>
+<div id="evalContent" class="hidden"><div class="eval-grid" id="evalCards"></div>
+<p class="eval-note">轨迹质量描述整段执行结果；帧位置只表示观看到哪里，不等于任务完成度。此页面未运行奖励模型，未生成逐帧进度或奖励预测。</p></div></div>
+<div class="card" id="info"><h2>数据详情</h2><div class="row" id="downloads"></div>
+<details><summary>完整轨迹记录 · Arrow 原始字段</summary><pre id="record">尚未选择轨迹</pre></details>
+<details><summary>轨迹索引分组</summary><pre id="groups"></pre></details>
+<details><summary>子集元信息与字段定义</summary><pre id="metadata"></pre></details>
+<details><summary>特征文件 · 视频与文本 Embeddings</summary><p class="help">按需加载 .pt 文件，展示所有张量的形状、类型和完整数值。</p><button id="loadEmbeddings" disabled>读取完整特征</button><pre id="embeddings">尚未加载</pre></details></div>
+</section></div></main>
+<script>
+const $=id=>document.getElementById(id);
+let allSubsets=[],offset=0,matched=0,current=null,generation=0,listGeneration=0,timer=null,frameSequence=0;
+const pretty=x=>JSON.stringify(x,null,2);
+const url=(path,params)=>path+'?'+new URLSearchParams(params);
+function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error)}
+async function api(path,params={}){const r=await fetch(url(path,params));if(!r.ok){let e;try{e=await r.json()}catch{}throw new Error(e?.detail||`请求失败 (${r.status})`)}return r.json()}
+function stop(){clearInterval(timer);timer=null;$('play').textContent='播放'}
+function clearRecord(){generation++;frameSequence++;stop();current=null;$('frame').classList.add('hidden');$('frame').removeAttribute('src');$('placeholder').classList.remove('hidden');$('placeholder').textContent='请选择轨迹';['slider','back','forward','play','loadEmbeddings'].forEach(id=>$(id).disabled=true);$('task').textContent='选择子集与轨迹';$('identity').textContent='';$('quality').textContent='尚未选择';['nframes','resolution','dtype','rownum'].forEach(id=>$(id).textContent='—');$('frameLabel').textContent='— / —';$('slider').value=0;['record','groups','metadata','embeddings'].forEach(id=>$(id).textContent='尚未加载');$('downloads').replaceChildren();$('evalCards').replaceChildren();$('evalEmpty').classList.remove('hidden');$('evalContent').classList.add('hidden')}
+function evaluationCard(title,value,description,tone=''){
+ const card=document.createElement('div');card.className='eval-item';card.dataset.tone=tone;
+ const label=document.createElement('small');label.textContent=title;
+ const strong=document.createElement('strong');strong.textContent=value;
+ const note=document.createElement('p');note.textContent=description;
+ card.append(label,strong,note);$('evalCards').append(card);return card;
+}
+function renderEvaluation(d){
+ const r=d.record,g=d.index_membership||{},present=v=>v!==null&&v!==undefined;
+ $('evalCards').replaceChildren();$('evalEmpty').classList.add('hidden');$('evalContent').classList.remove('hidden');
+ const quality={successful:['成功','整条轨迹被标注为成功，但这并不意味着每一帧都已完成任务。','success'],optimal:['最优','整条轨迹被标注为最优；逐帧进度仍需结合画面或专门的标注。','success'],suboptimal:['次优','执行质量低于成功/最优参考；标签本身不提供准确完成比例。','warning'],failure:['失败','整条轨迹被标注为失败，但执行中仍可能有局部进展。','failure'],failed:['失败','整条轨迹被标注为失败，但执行中仍可能有局部进展。','failure']}[String(r.quality_label).toLowerCase()];
+ evaluationCard('整段轨迹质量 · quality_label',quality?`${quality[0]} · ${r.quality_label}`:(r.quality_label||'未标注'),quality?quality[1]:'当前记录没有可解释的标准质量标签。',quality?quality[2]:'');
+ const pos=evaluationCard('当前帧在缓存序列中的位置','—','按缓存帧序号计算，并非原始视频时间或模型进度。');pos.querySelector('strong').id='evalPosition';
+ const track=document.createElement('div');track.className='position-track';const fill=document.createElement('span');fill.id='evalPositionFill';track.append(fill);pos.append(track);
+ const t=d.training;
+ if(!t){evaluationCard('训练信息','请重启网页服务','服务端尚未更新。');return}
+ const counts=t.quality_counts, labels={successful:'成功',optimal:'最优',suboptimal:'次优',failure:'失败',failed:'失败',unknown:'未知'};
+ const dist=evaluationCard('同任务的真实轨迹',`${t.task_total} 条`,t.scope);
+ const bars=document.createElement('div');bars.className='quality-bars';
+ for(const [key,n] of Object.entries(counts)){
+  const line=document.createElement('div');line.className='quality-bar';
+  const label=document.createElement('span');label.textContent=`${labels[key]||key} ${n}`;
+  const track=document.createElement('progress');track.max=t.task_total;track.value=n;
+  line.append(label,track);bars.append(line);
+ }dist.append(bars);
+ evaluationCard('原始轨迹的进度损失',t.progress_enabled?'参与进度监督':'不计算常规进度损失',t.progress_reason,t.progress_enabled?'success':'warning');
+ const good=(counts.successful||0)+(counts.optimal||0),bad=(counts.failure||0)+(counts.failed||0)+(counts.suboptimal||0);
+ let pairing=r.quality_label==='successful'?`同任务非最优候选 ${bad} 条`:`同任务成功/最优参考 ${good} 条`;
+ evaluationCard('偏好训练怎样使用这条轨迹',pairing,r.partial_success!=null?'此轨迹有 partial_success，偏好采样器会进入相应分支；不能仅按质量标签确定配对。':r.quality_label==='successful'?'可从同任务失败/次优轨迹构造 rejected；也可用倒放、回退或不同任务等策略构造比较。不是固定排名表。':'常规分支将非 successful 轨迹作为 rejected，并从同任务成功/最优索引随机选 chosen；没有候选时进入其他采样策略。');
+ evaluationCard('进度标签从哪里来','训练时动态生成','仓库默认 absolute_first_frame 根据采样帧索引、起点和数据源成功阈值计算；增强和配置会改变标签。当前帧位置条只是浏览定位，不是训练标签或模型预测。');
+ if(present(r.partial_success))evaluationCard('当前轨迹的部分成功标注',String(r.partial_success),'这是实际存储值；其配对、进度计算和损失掩码还受数据源及配置影响。');
+ const peers=evaluationCard('切换同任务轨迹','查看成功与失败的区别',t.peers_truncated?'仅展示前 100 条；可通过左侧 ID 搜索其他轨迹。':'点击一条轨迹，直接观察相同任务的不同执行结果。');
+ const list=document.createElement('div');list.className='peer-list';
+ for(const p of t.peers){const button=document.createElement('button');button.textContent=`${labels[p.quality_label]||p.quality_label||'未知'} · [${p.row}] ${p.id}`;button.disabled=Number(d.row)===p.row;button.onclick=()=>{const select=$('trajectory');if(![...select.options].some(o=>Number(o.value)===p.row))select.add(new Option(`[${p.row}] ${p.id}`,p.row));select.value=String(p.row);loadRecord()};list.append(button)}peers.append(list);
+
+}
+function updateEvaluationPosition(index){
+ if(!current||!$('evalPosition'))return;
+ const pct=current.count>1?index/(current.count-1)*100:0;
+ $('evalPosition').textContent=current.count>1?`${pct.toFixed(1)}% · 第 ${index+1} / ${current.count} 帧`:'仅 1 帧 · 无相对进度';
+ $('evalPositionFill').style.width=pct+'%';
+}
+function filterSubsets(){const q=$('subsetSearch').value.toLowerCase(),old=$('subset').value;$('subset').replaceChildren();for(const s of allSubsets.filter(s=>s.name.toLowerCase().includes(q))){$('subset').add(new Option(`${s.name} (${s.count??'?'})`,s.name))}if([...$('subset').options].some(x=>x.value===old))$('subset').value=old;offset=0;loadList()}
+async function loadList(){const token=++listGeneration;clearRecord();$('trajectory').replaceChildren();$('prevPage').disabled=true;$('nextPage').disabled=true;const subset=$('subset').value;if(!subset){$('page').textContent='0 条';status('没有匹配的子集');return}status('正在读取轨迹列表…');try{const d=await api('/api/trajectories',{subset,q:$('query').value,offset});if(token!==listGeneration)return;matched=d.matched;for(const item of d.items)$('trajectory').add(new Option(`[${item.row}] ${item.id}`,item.row));$('page').textContent=`${matched?offset+1:0}–${offset+d.items.length} / ${matched}`;$('prevPage').disabled=offset===0;$('nextPage').disabled=offset+100>=matched;if(d.items.length){$('trajectory').selectedIndex=0;await loadRecord()}else status('没有匹配的轨迹 ID')}catch(e){if(token===listGeneration)status(e.message,true)}}
+async function loadRecord(){clearRecord();const token=generation,subset=$('subset').value,row=$('trajectory').value;if(row==='')return;status('正在加载轨迹和缓存帧…');try{const d=await api('/api/record',{subset,row});if(token!==generation)return;current={subset,row,count:d.frame_count};renderEvaluation(d);$('task').textContent=d.record.task||'无任务描述';$('identity').textContent=d.record.id;$('quality').textContent=d.record.quality_label||'无质量标签';$('nframes').textContent=d.frame_count;$('resolution').textContent=`${d.frame_shape[2]} × ${d.frame_shape[1]}`;$('dtype').textContent=d.frame_dtype;$('rownum').textContent=row;$('record').textContent=pretty(d.record);$('groups').textContent=pretty(d.index_membership);$('metadata').textContent=pretty({dataset_info:d.dataset_info,features:d.features,dataset_state:d.dataset_state,resolved_frames:d.resolved_frames});$('slider').max=d.frame_count-1;['slider','back','forward','play','loadEmbeddings'].forEach(id=>$(id).disabled=false);for(const [kind,label] of [['frames','下载帧 NPZ'],['embeddings','下载特征 PT']]){if(kind==='embeddings'&&!d.record.embeddings_path)continue;const a=document.createElement('a');a.className='button';a.textContent=label;a.href=url('/api/download',{subset,row,kind});$('downloads').append(a)}status('已加载轨迹，可拖动进度条查看全部缓存帧');showFrame(0)}catch(e){if(token===generation){$('placeholder').textContent='轨迹加载失败，请查看上方提示';status(e.message,true)}}}
+function showFrame(index){if(!current)return;index=Math.max(0,Math.min(current.count-1,Number(index)));$('slider').value=index;updateEvaluationPosition(index);$('frameLabel').textContent=`${index+1} / ${current.count} · index ${index}`;$('back').disabled=index===0;$('forward').disabled=index===current.count-1;const seq=++frameSequence;const img=new Image();img.onload=()=>{if(seq!==frameSequence)return;$('frame').src=img.src;$('frame').alt=`轨迹 ${$('identity').textContent} 第 ${index+1} 帧`;$('frame').classList.remove('hidden');$('placeholder').classList.add('hidden')};img.onerror=()=>{if(seq===frameSequence){stop();status('图像加载失败，请重试或检查帧文件',true)}};img.src=url('/api/frame',{subset:current.subset,row:current.row,index})}
+$('slider').oninput=e=>{stop();showFrame(e.target.value)};$('back').onclick=()=>{stop();showFrame(Number($('slider').value)-1)};$('forward').onclick=()=>{stop();showFrame(Number($('slider').value)+1)};
+$('play').onclick=()=>{if(timer){stop();return}if(!current)return;$('play').textContent='暂停';timer=setInterval(()=>{if(Number($('slider').value)>=current.count-1){stop();return}showFrame(Number($('slider').value)+1)},1000/Number($('speed').value));if(Number($('slider').value)>=current.count-1)showFrame(0)};$('speed').onchange=stop;
+$('loadEmbeddings').onclick=async()=>{if(!current)return;const token=generation;$('loadEmbeddings').disabled=true;$('embeddings').textContent='正在读取特征文件，首次加载可能需要稍等…';try{const d=await api('/api/embeddings',{subset:current.subset,row:current.row});if(token===generation)$('embeddings').textContent=pretty(d)}catch(e){if(token===generation)$('embeddings').textContent=e.message}finally{if(token===generation)$('loadEmbeddings').disabled=false}};
+$('subset').onchange=()=>{offset=0;$('query').value='';loadList()};$('trajectory').onchange=loadRecord;$('prevPage').onclick=()=>{offset=Math.max(0,offset-100);loadList()};$('nextPage').onclick=()=>{offset+=100;loadList()};
+function debounce(fn){let t;return()=>{clearTimeout(t);t=setTimeout(fn,300)}}$('subsetSearch').oninput=debounce(filterSubsets);$('query').oninput=debounce(()=>{offset=0;loadList()});
+(async()=>{try{const d=await api('/api/subsets');allSubsets=d.subsets;$('root').textContent=d.root;$('count').textContent=`${allSubsets.length} 个子集 · 只读`;$('subsetSearch').value='';filterSubsets()}catch(e){status(e.message,true)}})();
+</script></body></html>
