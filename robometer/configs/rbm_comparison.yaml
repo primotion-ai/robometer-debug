@@ -9,6 +9,7 @@ model_config:
   batch_size: 4
   strict_offline: true
   base_model_path: null
+  device_map: null
   balanced_preferences: true
 custom_eval:
   eval_types: [reward_alignment, policy_ranking, quality_preference, confusion_matrix]

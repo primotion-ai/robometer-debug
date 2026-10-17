@@ -1,0 +1,7 @@
+model:
+  path: /mnt/base_model/Qwen3-VL-4B-Instruct
+train:
+  batch_size: 32
+  max_steps: 15000
+  learning_rate: 0.00002
+  save_steps: 3000

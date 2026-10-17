@@ -1,0 +1,9 @@
+model:
+  path: /mnt/base_model/Qwen3.5-397B-A17B
+  precision: pure_fp16
+  linear_attention: fla
+train:
+  batch_size: 4
+  max_steps: 2000
+  learning_rate: 0.000005
+  save_steps: 1000

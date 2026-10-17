@@ -1,0 +1,45 @@
+model:
+  name: null
+  path: null
+  precision: bf16
+  attention: sdpa
+  linear_attention: auto
+  freeze_vision: true
+  gradient_checkpointing: true
+  head_dim: 256
+data:
+  root: /mnt/dataset/robometer-1m
+  datasets: [rbm-1m-id]
+  exclude_datasets: []
+  exclude_sources: []
+  min_keyframes: 2
+  max_keyframes: 11
+  candidate_extra: 1
+  max_candidate_rounds: 100
+  validation_fraction: 0.01
+  split_seed: 20261008
+  source_balanced: true
+  # Per GPU/rank: 10 training workers -> 80 per eight-GPU node.
+  workers: 10
+  # null follows the backbone processor's native image sizing.
+  max_pixels: null
+  # Optional cap per source for fast smoke tests; applied after trajectory split.
+  max_trajectories_per_source: null
+train:
+  seed: 42
+  batch_size: 4
+  gradient_accumulation_steps: 1
+  max_steps: 5000
+  learning_rate: 0.00001
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  save_steps: 1000
+  eval_steps: 500
+  eval_batches: 16
+  max_skipped_updates: 20
+  output_dir: logs/icl_progress
+  resume: null
+logging:
+  wandb: true
+  project: robometer-icl-progress

@@ -1,0 +1,7 @@
+model:
+  path: /mnt/base_model/Qwen3.8-27B
+  linear_attention: fla
+train:
+  batch_size: 16
+  max_steps: 5000
+  save_steps: 1000

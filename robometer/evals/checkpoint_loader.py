@@ -21,7 +21,20 @@ def validate_shapes(expected, shapes):
         raise ValueError(f'Checkpoint mismatch: missing={sorted(missing)}, extra={sorted(extra)}, shapes={mismatched}')
 
 
-def load_offline_checkpoint(checkpoint_path, device, base_model_path=None):
+def dispatch_offline_model(model, device, placement):
+    from accelerate import dispatch_model
+    from accelerate.hooks import AlignDevicesHook, add_hook_to_module
+
+    model = dispatch_model(model, device_map=placement, main_device=device)
+    # RBM extracts token states using input_ids on the main GPU before it
+    # calls its heads. Return the backbone outputs to that same GPU.
+    add_hook_to_module(model.model, AlignDevicesHook(execution_device=device, io_same_device=True), append=True)
+    return model
+
+
+def load_offline_checkpoint(checkpoint_path, device, base_model_path=None, device_map=None):
+    if device_map not in (None, 'auto'):
+        raise ValueError('Offline device_map must be null or auto')
     root = Path(checkpoint_path).resolve()
     config_path = root / 'config.yaml'
     if not config_path.exists():
@@ -59,6 +72,8 @@ def load_offline_checkpoint(checkpoint_path, device, base_model_path=None):
     config.text_config.vocab_size = shapes['model.language_model.embed_tokens.weight'][0]
     config.text_config.use_cache = False
     config._attn_implementation = 'sdpa'
+    if config.model_type == 'qwen3_5_moe' and exp.model.experts_implementation is not None:
+        config._experts_implementation = exp.model.experts_implementation
     cls = {'qwen3_vl': Qwen3VLModel, 'qwen3_5': Qwen3_5Model, 'qwen3_5_moe': Qwen3_5MoeModel}[config.model_type]
     processor = _setup_processor_and_tokenizer(exp.model)
     with init_empty_weights():
@@ -77,6 +92,7 @@ def load_offline_checkpoint(checkpoint_path, device, base_model_path=None):
     if dcp_path.is_dir():
         import torch.distributed.checkpoint as dcp
         weights = {k: torch.empty(shape, dtype=dtype) for k, shape in shapes.items()}
+        print(f'Loading {len(weights)} DCP tensors into CPU memory ({sum(w.numel()*w.element_size() for w in weights.values())/2**30:.1f} GiB)', flush=True)
         dcp.load({'model': weights}, storage_reader=reader)
     else:
         weights = {}
@@ -90,13 +106,33 @@ def load_offline_checkpoint(checkpoint_path, device, base_model_path=None):
     if config.model_type in {'qwen3_5', 'qwen3_5_moe'}:
         configure_qwen_linear_attention(model.model, exp.model.linear_attention_backend)
     model.requires_grad_(False)
-    model.to(device).eval()
+    model.eval()
+    if device_map == 'auto':
+        from accelerate import infer_auto_device_map
+        if not torch.cuda.is_available():
+            raise ValueError('Automatic offline device mapping requires CUDA')
+        # Leave room for activations, attention workspaces and input/output tensors.
+        max_memory = {i: max(0, torch.cuda.mem_get_info(i)[0] - 24 * 2**30)
+                      for i in range(torch.cuda.device_count())}
+        placement = infer_auto_device_map(
+            model, max_memory=max_memory, dtype=dtype,
+            no_split_module_classes=['Qwen3_5MoeDecoderLayer', 'Qwen3_5DecoderLayer',
+                                     'Qwen3VLTextDecoderLayer', 'Qwen3_5MoeVisionModel',
+                                     'Qwen3_5VisionModel', 'Qwen3VLVisionModel'])
+        if any(value in ('cpu', 'disk') for value in placement.values()):
+            raise RuntimeError(f'Insufficient GPU memory for full-resident inference: {placement}')
+        print(f'Dispatching model across GPUs: {placement}', flush=True)
+        model = dispatch_offline_model(model, device, placement)
+    else:
+        placement = {'': str(device)}
+        model.to(device)
     model.model_dtype = dtype
     model.checkpoint_load_report = {
         'checkpoint': str(root), 'format': 'fsdp_dcp' if dcp_path.is_dir() else 'safetensors',
         'tensors_loaded': len(shapes), 'missing_keys': [], 'unexpected_keys': [],
         'unused_legacy_similarity_head': unused,
         'dtype': str(dtype), 'base_model_path': exp.model.base_model_id,
+        'device_map': placement,
         'special_token_ids': {t: processor.tokenizer.convert_tokens_to_ids(t)
                               for t in ['<|pref_token|>', '<|prog_token|>']},
     }

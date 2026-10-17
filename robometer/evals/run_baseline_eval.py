@@ -508,7 +508,8 @@ def run_baseline_evaluation(cfg: BaselineEvalConfig, base_data_cfg: DataConfig) 
             raise ValueError("model_path is required for RBM/ReWiND reward model")
         model = RBMModel(checkpoint_path=cfg.model_path,
                          strict_offline=model_config_dict.get('strict_offline', False),
-                         base_model_path=model_config_dict.get('base_model_path'))
+                         base_model_path=model_config_dict.get('base_model_path'),
+                         device_map=model_config_dict.get('device_map'))
         report = getattr(model.model, 'checkpoint_load_report', None)
         if report:
             with open(os.path.join(cfg.output_dir, 'checkpoint_load_report.json'), 'w') as f:

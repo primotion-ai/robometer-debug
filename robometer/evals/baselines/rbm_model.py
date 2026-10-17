@@ -27,7 +27,7 @@ setup_loguru_logging("TRACE")
 class RBMModel:
     """RBM/ReWiND model for baseline evaluation with unified compute methods."""
 
-    def __init__(self, checkpoint_path: str, strict_offline=False, base_model_path=None):
+    def __init__(self, checkpoint_path: str, strict_offline=False, base_model_path=None, device_map=None):
         """Initialize the RBM/ReWiND model wrapper.
 
         Args:
@@ -46,7 +46,7 @@ class RBMModel:
         loader = load_model_from_hf
         if strict_offline:
             from robometer.evals.checkpoint_loader import load_offline_checkpoint
-            loader = lambda model_path, device: load_offline_checkpoint(model_path, device, base_model_path)
+            loader = lambda model_path, device: load_offline_checkpoint(model_path, device, base_model_path, device_map)
         exp_config, tokenizer, processor, model = loader(
             model_path=checkpoint_path,
             device=device,

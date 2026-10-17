@@ -161,6 +161,7 @@ class RBMConfig:
     strict_offline: bool = False
     base_model_path: Optional[str] = None
     balanced_preferences: bool = False
+    device_map: Optional[str] = None
 
 
 @dataclass
