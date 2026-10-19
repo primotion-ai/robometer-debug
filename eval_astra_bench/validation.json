@@ -1,0 +1,71 @@
+{
+  "benchmark_id": "98d107101cb02ac5dc82304dbef7a0d9615a6a51a1a975d5c7d9ea8d66aee71a",
+  "counts": {
+    "trajectories": 514,
+    "frames": 16448,
+    "tasks": 41,
+    "icl_references": 42,
+    "reference_scales": 45,
+    "pairs": 27712,
+    "modes": {
+      "within": 16448,
+      "cross": 11264
+    },
+    "gold_relations": {
+      "eq": 13674,
+      "lt": 7058,
+      "gt": 6980
+    }
+  },
+  "unit_tests": {
+    "protocol": 8,
+    "model_io": 3,
+    "passed": true
+  },
+  "gpu_smoke_runs": [
+    {
+      "name": "icl4b",
+      "trajectories": 1,
+      "frames_per_trajectory": 32,
+      "load_report": "/mnt/liuzihao/project/robometer/eval_astra_bench/outputs/validation/icl4b.load.json"
+    },
+    {
+      "name": "icl27b",
+      "trajectories": 1,
+      "frames_per_trajectory": 32,
+      "load_report": "/mnt/liuzihao/project/robometer/eval_astra_bench/outputs/validation/icl27b.load.json"
+    },
+    {
+      "name": "official32",
+      "trajectories": 1,
+      "frames_per_trajectory": 32,
+      "load_report": "/mnt/liuzihao/project/robometer/eval_astra_bench/outputs/validation/official32.load.json"
+    }
+  ],
+  "official_input_output_lengths": [
+    [
+      8,
+      8
+    ],
+    [
+      16,
+      16
+    ],
+    [
+      32,
+      32
+    ]
+  ],
+  "oracle": {
+    "correct": 27712,
+    "total": 27712,
+    "accuracy": 1.0
+  },
+  "constant_baseline": {
+    "correct": 13674,
+    "total": 27712,
+    "accuracy": 0.4934324480369515
+  },
+  "icl_397b_end_to_end_tested": false,
+  "full_model_benchmark_run": false
+}

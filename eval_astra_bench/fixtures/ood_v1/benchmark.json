@@ -1,0 +1,287 @@
+{
+  "schema_version": "astra_order_bench/v1",
+  "source_release": "2026-10-17-r177-v016-mixed",
+  "source_manifest_sha256": "0c74aab4851ce21cfb9be7cad61df0774b79e14fad13b3b2991b9c2b4fb32d93",
+  "source_checksums_sha256": "9dc3a407520ce5e7e22b9157be2951982d1fd0aa4e577cf8275a98a90a640278",
+  "seed": 20261018,
+  "tie_threshold": 0.1,
+  "tie_rule": "abs(a-b)<=threshold",
+  "pair_scope": "reference",
+  "within_per_trajectory": 32,
+  "cross_per_group": 256,
+  "reference_frames": [
+    0,
+    8,
+    16,
+    24,
+    31
+  ],
+  "reference_progress": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ],
+  "reference_policy": "seeded source-successful reference per scene group; references included in scoring",
+  "exclude_known_conflicts": false,
+  "excluded": [
+    {
+      "trajectory_id": "01de5bc0-58b9-4160-9da5-bfbc10edd4ca",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "075974b1-9eec-44ec-9c49-8dd415773628",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "0b73b4ec-7896-4b0e-be0a-9f0155a8aadf",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "11763f48-01e9-4eb6-8bdd-53fbac68f89e",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "19ef29b6-899a-4b78-88c8-fed46998f023",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "1de5643b-8ce2-43de-a078-ba7a2629c587",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "2fef061b-09b9-442c-82c6-7825c5e89fa5",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "3003d9f0-1521-493c-b1a2-85f80006ed1c",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "4119d278-838d-43fa-8cc7-8a21f37421ee",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "4ff0df87-136e-4036-bbb4-282dedcab229",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "54b8de37-2f9f-4488-8931-4fb990b0268d",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "5bae3348-abd3-4d3b-96b8-214378b502e4",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "62fe9e39-d171-4fa5-9b8f-6edb23660c6e",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "67745758-b3d9-4bd2-84a8-cc753b0ebe47",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "6e9b3a7e-7a26-4123-acea-fd87a05eff98",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "70ab0bca-bc83-4118-957b-06ffa91deb69",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "731d38a8-24b6-4d57-8863-af6a2798b91c",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "79041109-b96f-474b-82fe-b02a69c4b641",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "7c1d1873-88f9-4530-a87b-2b43d816e25c",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "83ebf693-c82b-42d6-8cda-170ac28594ac",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "8a9f8a34-517b-4adc-8152-da76693778f5",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "8e18746a-6c32-420d-af1b-2edfd09fbc71",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "933468b5-eca8-47fe-affc-10dafadd72d8",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "9d253d56-ff72-42e1-99e2-66df9e1c0b7b",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "9ead58b4-54fa-4691-bdf3-1259154b9466",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "9edecc05-daf2-40e6-b9da-9b5df3e478fb",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "a4ca9abd-bf9d-4531-80a8-944c7a708a63",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "a699b739-e7ee-4c14-b027-436e16853bf7",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "aaabc040-81d0-4c2c-ab31-6343690a1405",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "ab8ad119-b7ba-4983-b111-731530a21f7c",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "acc1d998-0d31-4ea7-8d15-403342000a5f",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "b04a24f5-f50a-418c-b156-9ae1b05914b8",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "b3b5f98a-f56c-4717-9681-162f9a807b9c",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "b50b15a0-6d10-4fd2-bb06-f5b781b13ccb",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "b5c4d53a-3c9f-41da-99da-0a65895663d6",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "b6ceb39d-adf0-4e42-8817-8daf724e5fb8",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "b87ab6ec-35d4-44b9-a9ef-cd27ccf8ac5f",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "b97c8f8e-43d0-4e06-855b-e01065cf0325",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "c1af326f-52e2-4236-8887-dc49db367811",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "c36a3988-fcff-483c-8db2-599a73eb95ba",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "cb89d664-7265-444b-b623-87c11dba2359",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "ce5fc60b-6658-4584-bd27-c5abae549a0d",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "cf54383e-9ec1-4763-9c58-c413f41a92a9",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "d53de77a-d031-46f0-9078-df376aa17509",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "d5f2bc6d-3dc0-486b-880f-03b44a7ffd09",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "d6e9b8b6-c6bf-4aa8-b766-eb22546b426a",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "d7e2996b-27bd-4fb6-9610-eafa383a5cd4",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "db3f2f0a-4046-4ba5-9d64-866b80c431bb",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "e0044959-f7df-453f-8cf2-eb0b7e668e79",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "e3dc8245-c4e1-4678-a1de-2ee880e15a4e",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "e795d59a-3c17-461c-bfd2-93e04303b866",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "e9007a9b-c3b9-465f-adba-c7dcba3811a6",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "e9cfe775-4b5f-4868-b821-f85e92362b1c",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "f48bb5f2-0539-4e82-8d68-dcea8ea2f119",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "f9393a5a-c2f1-46ce-a83e-50ac3ccbf22d",
+      "reason": "excluded_mit_franka_towel"
+    },
+    {
+      "trajectory_id": "fc07c10e-f2d5-4ac4-a49a-e7d4a864824f",
+      "reason": "excluded_mit_franka_towel"
+    }
+  ],
+  "skipped_cross_groups": [
+    {
+      "group": "6e117e066f6fafffc14c105dc4969401e2c4df667ab048902b784278dc3e1954",
+      "trajectory_ids": [
+        "ykorkmaz__aloha_uncap_pen_ep_000000"
+      ],
+      "reason": "only_one_trajectory"
+    }
+  ],
+  "counts": {
+    "trajectories": 514,
+    "frames": 16448,
+    "tasks": 41,
+    "icl_references": 42,
+    "reference_scales": 45,
+    "pairs": 27712,
+    "modes": {
+      "within": 16448,
+      "cross": 11264
+    },
+    "gold_relations": {
+      "eq": 13674,
+      "lt": 7058,
+      "gt": 6980
+    }
+  },
+  "files": {
+    "inputs.jsonl": "1305444518d945316d4baa8e6b8d395b40d49abd6aa0fe5f4884442361647a06",
+    "targets.jsonl": "1b83c784bed9589fc61b326dd24c88fb5429957cd9e6b05f87bc28ca3bb66e23",
+    "pairs.jsonl": "172f895806659fa4c7130cd4237ef693bf8fe218b1effb99e6f77e89b0902a7a"
+  },
+  "benchmark_id": "98d107101cb02ac5dc82304dbef7a0d9615a6a51a1a975d5c7d9ea8d66aee71a",
+  "data_root": "/mnt_slow/wangchunfeng/dataset/robometer-1m-ood-label/2026-10-17-r177-v016-mixed"
+}

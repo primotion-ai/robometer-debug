@@ -1,0 +1,328 @@
+{
+  "schema_version": "astra_order_bench/v1",
+  "source_release": "ood-r177-equal-keyframes-v1",
+  "source_manifest_sha256": "58ceccb9d6d1c7d754acacd74da57d2a3438787b7b1ebd40e1cb150c514f352a",
+  "source_checksums_sha256": "5ead5cf001ac3e09cf2e2dd630f0dc113e08a065c50e34b2dd3938d37705bc96",
+  "original_benchmark_id": "98d107101cb02ac5dc82304dbef7a0d9615a6a51a1a975d5c7d9ea8d66aee71a",
+  "seed": 20261018,
+  "tie_threshold": 0.1,
+  "tie_rule": "abs(a-b)<=threshold",
+  "pair_scope": "reference",
+  "pair_sampling": "retain_original_pair_ids_and_endpoints_filtered_to_new_release",
+  "inherited_sampling_strata": "original reference hashes; validated against new same-task/same-scale constraints",
+  "reference_frames": [
+    0,
+    8,
+    16,
+    24,
+    31
+  ],
+  "reference_progress": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ],
+  "reference_policy": "preserve_original_model_ICL_inputs; new labeler reference does not replace model reference",
+  "exclude_known_conflicts": false,
+  "human_conflict_metadata": "not_provided_by_new_release",
+  "excluded": [
+    {
+      "trajectory_id": "01de5bc0-58b9-4160-9da5-bfbc10edd4ca",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "075974b1-9eec-44ec-9c49-8dd415773628",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "0b73b4ec-7896-4b0e-be0a-9f0155a8aadf",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "11763f48-01e9-4eb6-8bdd-53fbac68f89e",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "19ef29b6-899a-4b78-88c8-fed46998f023",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "1de5643b-8ce2-43de-a078-ba7a2629c587",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "1e4636b3-354e-4759-bd30-901f72c0f610",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "2cde07f3-5182-4a31-bcc0-8ebd58452b38",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "2fef061b-09b9-442c-82c6-7825c5e89fa5",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "3003d9f0-1521-493c-b1a2-85f80006ed1c",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "310abc9d-04d9-401f-93b9-c20447296f32",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "4119d278-838d-43fa-8cc7-8a21f37421ee",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "4ff0df87-136e-4036-bbb4-282dedcab229",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "509fdc63-7acb-4b8b-bf76-043c3476eb35",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "54b8de37-2f9f-4488-8931-4fb990b0268d",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "5bae3348-abd3-4d3b-96b8-214378b502e4",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "62fe9e39-d171-4fa5-9b8f-6edb23660c6e",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "67745758-b3d9-4bd2-84a8-cc753b0ebe47",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "6dba8a89-972a-4ec5-b612-d5070a500111",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "6e9b3a7e-7a26-4123-acea-fd87a05eff98",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "70ab0bca-bc83-4118-957b-06ffa91deb69",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "731d38a8-24b6-4d57-8863-af6a2798b91c",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "75967187-8e3e-43f5-b2b1-fc643506f297",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "79041109-b96f-474b-82fe-b02a69c4b641",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "7c1d1873-88f9-4530-a87b-2b43d816e25c",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "7c3a6129-d2a2-42f9-80d8-c75b763acb80",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "83ebf693-c82b-42d6-8cda-170ac28594ac",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "8a9f8a34-517b-4adc-8152-da76693778f5",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "8e18746a-6c32-420d-af1b-2edfd09fbc71",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "933468b5-eca8-47fe-affc-10dafadd72d8",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "9d253d56-ff72-42e1-99e2-66df9e1c0b7b",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "9ead58b4-54fa-4691-bdf3-1259154b9466",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "9edecc05-daf2-40e6-b9da-9b5df3e478fb",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "a4ca9abd-bf9d-4531-80a8-944c7a708a63",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "a699b739-e7ee-4c14-b027-436e16853bf7",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "aaabc040-81d0-4c2c-ab31-6343690a1405",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "ab8ad119-b7ba-4983-b111-731530a21f7c",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "acc1d998-0d31-4ea7-8d15-403342000a5f",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b04a24f5-f50a-418c-b156-9ae1b05914b8",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b14d62ea-77a6-437b-9765-3f326f21402b",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b3b5f98a-f56c-4717-9681-162f9a807b9c",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b50b15a0-6d10-4fd2-bb06-f5b781b13ccb",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b5c4d53a-3c9f-41da-99da-0a65895663d6",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b6ceb39d-adf0-4e42-8817-8daf724e5fb8",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b87ab6ec-35d4-44b9-a9ef-cd27ccf8ac5f",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "b97c8f8e-43d0-4e06-855b-e01065cf0325",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "c1af326f-52e2-4236-8887-dc49db367811",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "c36a3988-fcff-483c-8db2-599a73eb95ba",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "cb89d664-7265-444b-b623-87c11dba2359",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "ce5fc60b-6658-4584-bd27-c5abae549a0d",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "cf54383e-9ec1-4763-9c58-c413f41a92a9",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "d53de77a-d031-46f0-9078-df376aa17509",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "d5f2bc6d-3dc0-486b-880f-03b44a7ffd09",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "d6e9b8b6-c6bf-4aa8-b766-eb22546b426a",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "d7ac5396-b6c0-4c6f-8fc9-bfe5c6625ff1",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "d7e2996b-27bd-4fb6-9610-eafa383a5cd4",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "db3f2f0a-4046-4ba5-9d64-866b80c431bb",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "e0044959-f7df-453f-8cf2-eb0b7e668e79",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "e3dc8245-c4e1-4678-a1de-2ee880e15a4e",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "e795d59a-3c17-461c-bfd2-93e04303b866",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "e9007a9b-c3b9-465f-adba-c7dcba3811a6",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "e9cfe775-4b5f-4868-b821-f85e92362b1c",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "ef2bbfc9-5919-470a-a45f-5eeaaa26f723",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "f47e4ed1-8863-4ed9-93d0-02fb55008a94",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "f48bb5f2-0539-4e82-8d68-dcea8ea2f119",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "f5ebe253-fab2-4716-afa7-4dc3b969e8bf",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "f9393a5a-c2f1-46ce-a83e-50ac3ccbf22d",
+      "reason": "excluded_towel_all_sources"
+    },
+    {
+      "trajectory_id": "fc07c10e-f2d5-4ac4-a49a-e7d4a864824f",
+      "reason": "excluded_towel_all_sources"
+    }
+  ],
+  "counts": {
+    "trajectories": 502,
+    "frames": 16064,
+    "tasks": 40,
+    "icl_references": 40,
+    "reference_scales": 40,
+    "pairs": 26816,
+    "modes": {
+      "within": 16064,
+      "cross": 10752
+    },
+    "gold_relations": {
+      "eq": 9560,
+      "lt": 8672,
+      "gt": 8584
+    }
+  },
+  "files": {
+    "inputs.jsonl": "f1b53ef0f51a2a23213257194293851216d3e4e9dbc1af2973235c7b1b88f9de",
+    "targets.jsonl": "142c2252e197871008a7b0fe5e7f0babfaa8cab47c28f1eea56d51298096bc70",
+    "pairs.jsonl": "2dfad28f8b2ce2a89fcff6800cdcda2fafc2fb4727d9578712dbf3826d3b4831"
+  },
+  "benchmark_id": "ea893aa5a01d26f3d5b7a3161dd9292a22b8d6d2e53c77b0e3d1b5442768a574",
+  "data_root": "/mnt_slow/wangchunfeng/dataset/robometer-1m-ood-label/ood-r177-equal-keyframes-v1"
+}
